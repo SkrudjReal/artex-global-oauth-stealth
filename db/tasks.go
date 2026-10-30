@@ -335,6 +335,9 @@ func insertTaskLLMProfiles(tx *sql.Tx, taskID int64, profileIDs []int64) error {
 			return fmt.Errorf("invalid or duplicate LLM profile id %d", profileID)
 		}
 		seen[profileID] = true
+		if err := lockLLMProfileForReference(tx, &profileID); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`INSERT INTO task_llm_profiles(task_id, profile_id, position) VALUES ($1,$2,$3)`, taskID, profileID, position); err != nil {
 			return err
 		}

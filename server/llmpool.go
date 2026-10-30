@@ -106,7 +106,8 @@ func (s *Server) poolChain(headID int64, headProv llm.Provider, headCfg agent.Co
 		WindowTokens: headCfg.CompactionWindow(), Prov: headProv,
 	}}
 	for _, p := range profs {
-		if p.ID == headID {
+		// AGY can continue its own session, but cannot import another provider's history.
+		if p.ID == headID || p.Format == "agy-oauth" {
 			continue
 		}
 		// The globally active profile outranks the others when it isn't the head
@@ -197,6 +198,9 @@ func (s *Server) llmPoolStatus() map[string]any {
 	// PoolProfiles applies, recomputed here so excluded ones can be shown in place.
 	chain := make([]LLMPoolMemberStatus, 0, len(all))
 	for _, p := range all {
+		if !p.SupportsAgentTools() {
+			continue
+		}
 		st := health[p.ID]
 		m := LLMPoolMemberStatus{
 			ProfileID: i64s(p.ID), Name: p.Name, Model: p.Model, Format: p.Format,

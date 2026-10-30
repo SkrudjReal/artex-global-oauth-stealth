@@ -31,6 +31,8 @@ import { api } from "@/lib/api";
 import type { LLMPoolMember, LLMPoolStatus, LLMProfile, LLMRetryOverride } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+import { OAuthCLIProfile } from "./_components/oauth-cli";
+
 import { ProfileRetryFields, RetryPolicyPanel, ZERO_OVERRIDE } from "./_components/retry";
 
 // 思考开关(thinking.type)与思考强度(reasoning_effort)是两个【互相独立】的字段，
@@ -61,10 +63,12 @@ function PoolSheet({
   onOpenChange,
   pool,
   onReload,
+  hasExternal,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   pool: LLMPoolStatus | null;
+  hasExternal: boolean;
   onReload: () => Promise<void>;
 }) {
   const t = useTranslations("llmPage");
@@ -122,6 +126,7 @@ function PoolSheet({
         </SheetHeader>
 
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-6">
+ {hasExternal && <p className="rounded border p-3 text-sm">OAuth CLI profiles run only as External Agents. They cannot activate the normal chat, Planner/Worker, or API Key rotation. Open the profile and choose Run External Agent.</p>}
           <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
             <div className="grid gap-0.5">
               <Label className="text-sm">{t("pool.enable.label")}</Label>
@@ -260,7 +265,7 @@ function ProfileSheet({
   const t = useTranslations("llmPage");
   const isNew = !profile;
   const [name, setName] = React.useState("");
-  const [format, setFormat] = React.useState<"anthropic" | "openai" | "openai-responses">("anthropic");
+  const [format, setFormat] = React.useState<LLMProfile["format"]>("anthropic");
   const [model, setModel] = React.useState("");
   const [baseUrl, setBaseUrl] = React.useState("");
   const [proxy, setProxy] = React.useState("");
@@ -308,7 +313,7 @@ function ProfileSheet({
   React.useEffect(() => {
     if (!open) return;
     setName(profile?.name ?? "");
-    setFormat(profile?.format === "openai" || profile?.format === "openai-responses" ? profile.format : "anthropic");
+    setFormat(profile?.format ?? "anthropic");
     setModel(profile?.model ?? "");
     setBaseUrl(profile?.base_url ?? "");
     setProxy(profile?.proxy ?? "");
@@ -425,6 +430,12 @@ function ProfileSheet({
     }
   }
 
+  if (format === "codex-oauth" || format === "agy-oauth") return (
+    <Sheet open={open} onOpenChange={onOpenChange}><SheetContent className="flex flex-col gap-4 p-0 data-[side=right]:sm:max-w-lg">
+      <OAuthCLIProfile key={`${profile?.id??"new"}-${format}`} profile={profile} kind={format} onKindChange={setFormat} onSaved={onSaved} onClose={()=>onOpenChange(false)}/>
+    </SheetContent></Sheet>
+  );
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -456,7 +467,7 @@ function ProfileSheet({
             </div>
             <div className="grid gap-2">
               <Label>{t("profile.format.label")}</Label>
-              <Select value={format} onValueChange={(v) => setFormat(v as "anthropic" | "openai" | "openai-responses")}>
+              <Select value={format} onValueChange={(v) => setFormat(v as LLMProfile["format"])}>
                 <SelectTrigger>
                   <SelectValue placeholder={t("profile.format.placeholder")} />
                 </SelectTrigger>
@@ -464,6 +475,8 @@ function ProfileSheet({
                   <SelectItem value="anthropic">Anthropic</SelectItem>
                   <SelectItem value="openai">OpenAI (Chat Completions)</SelectItem>
                   <SelectItem value="openai-responses">OpenAI (Responses API)</SelectItem>
+<SelectItem value="codex-oauth">Codex CLI (ChatGPT OAuth)</SelectItem>
+<SelectItem value="agy-oauth">Antigravity CLI / agy (Google OAuth)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -739,7 +752,8 @@ export default function LLMPage() {
   // 一个配置在卡片上显示的「是否正常」。没填 Key 的配置根本发不出请求，比熔断更该先说。
   const healthOf = React.useCallback(
     (p: LLMProfile, m?: LLMPoolMember): Health => {
-      if (!p.api_key_hint) {
+
+ if (!p.api_key_hint && p.format !== "codex-oauth" && p.format !== "agy-oauth") {
         return {
           label: t("health.noKey.label"),
           cls: "border-muted-foreground/40 text-muted-foreground",
@@ -778,7 +792,7 @@ export default function LLMPage() {
 
   const load = React.useCallback(async () => {
     try {
-      setProfiles(await api.llmProfiles());
+      setProfiles(await api.llmProfiles(true));
     } catch {
       /* ignore */
     }
@@ -909,6 +923,7 @@ export default function LLMPage() {
                       )}
                       {/* 轮询相关的两个字段只在轮询开着时才有意义，关着时不占版面 */}
                       {poolOn &&
+
                         !p.is_default &&
                         (p.pool_exclude ? (
                           <span>{t("card.excluded")}</span>
@@ -917,7 +932,8 @@ export default function LLMPage() {
                         ))}
                     </div>
 
-                    <div className="mt-1 flex gap-2">
+
+ <div className="mt-1 flex gap-2">
                       <Button
                         size="sm"
                         variant="outline"
@@ -960,7 +976,7 @@ export default function LLMPage() {
       </Tabs>
 
       <ProfileSheet profile={editing} open={editOpen} onOpenChange={setEditOpen} onSaved={() => void load()} />
-      <PoolSheet open={poolOpen} onOpenChange={setPoolOpen} pool={pool} onReload={loadPool} />
+      <PoolSheet hasExternal={false} open={poolOpen} onOpenChange={setPoolOpen} pool={pool} onReload={loadPool} />
     </div>
   );
 }

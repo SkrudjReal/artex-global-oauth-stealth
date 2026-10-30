@@ -67,6 +67,16 @@ type LLMProfile struct {
 	Retry RetryOverride `json:"retry"`
 }
 
+// SupportsAgentTools includes native CLI bridges with host-owned tool execution.
+func (p *LLMProfile) SupportsAgentTools() bool {
+	switch p.Format {
+	case "openai", "anthropic", "openai-responses", "codex-oauth", "agy-oauth":
+		return true
+	}
+	return false
+}
+func (p *LLMProfile) OAuth() bool { return p.Format == "codex-oauth" || p.Format == "agy-oauth" }
+
 // RetryOverride is one profile's optional override of the three retry layers
 // that are per-endpoint: 建连(connect) / 空响应(empty) / 同 provider 安全窗口
 // (stream). Each rule's zero value means "inherit the global policy"; see
@@ -139,7 +149,7 @@ func (d *DB) ProfileByID(id int64) (*LLMProfile, error) {
 // walk the slice front to back.
 func (d *DB) PoolProfiles() ([]*LLMProfile, error) {
 	rows, err := d.Query(`SELECT ` + profileColsKey + ` FROM llm_profiles
-WHERE COALESCE(api_key,'') <> '' AND (is_default OR NOT pool_exclude)
+WHERE (format IN ('codex-oauth','agy-oauth') OR COALESCE(api_key,'') <> '') AND (is_default OR NOT pool_exclude)
 ORDER BY is_default DESC, priority DESC, id ASC`)
 	if err != nil {
 		return nil, err
@@ -158,6 +168,28 @@ ORDER BY is_default DESC, priority DESC, id ASC`)
 
 // SaveProfile inserts (id==0) or updates a profile. Empty apiKey on update keeps existing.
 func (d *DB) SaveProfile(p *LLMProfile) (int64, error) {
+	if p.ID != 0 {
+		previous, err := d.ProfileByID(p.ID)
+		if err != nil {
+			return 0, err
+		}
+		if previous != nil && (previous.OAuth() || p.OAuth()) && previous.Format != p.Format {
+			return 0, fmt.Errorf("create a new profile to change OAuth provider/authentication type")
+		}
+	}
+	if p.OAuth() {
+		if p.APIKey != "" {
+			return 0, fmt.Errorf("OAuth profiles cannot store API keys or tokens")
+		}
+		p.APIKeyHint = ""
+		p.BaseURL = ""
+		p.Proxy = ""
+		p.Streaming = true
+		if p.Format == "agy-oauth" {
+			p.PoolExclude = true
+		}
+	}
+
 	hint := p.APIKeyHint
 	if len(p.APIKey) >= 4 {
 		hint = "…" + p.APIKey[len(p.APIKey)-4:]
@@ -417,6 +449,14 @@ func lockProfileReferenceRows(ctx context.Context, tx *sql.Tx, query string, pro
 
 // SetActiveProfile makes one profile the global default (single-default invariant).
 func (d *DB) SetActiveProfile(id int64) error {
+	p, err := d.ProfileByID(id)
+	if err != nil {
+		return err
+	}
+	if p != nil && !p.SupportsAgentTools() {
+		return fmt.Errorf("profile does not support ARTEX agent tools")
+	}
+
 	tx, err := d.Begin()
 	if err != nil {
 		return err
@@ -815,7 +855,7 @@ type MCPServer struct {
 	Env       json.RawMessage `json:"env"`
 	URL       string          `json:"url,omitempty"`
 	Enabled   bool            `json:"enabled"`
-	Insecure  bool            `json:"insecure"` // http: skip TLS cert verification (self-signed servers, issue #108)
+	Insecure  bool            `json:"insecure"`        // http: skip TLS cert verification (self-signed servers, issue #108)
 	Tools     []string        `json:"tools,omitempty"` // cached tool names (mcp_tools_cache)
 }
 

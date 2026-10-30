@@ -554,6 +554,9 @@ func (s *Server) pgGetAgent(w http.ResponseWriter, r *http.Request) {
 	profs, _ := pg.ListProfiles()
 	llmProfiles := make([]map[string]any, 0, len(profs))
 	for _, p := range profs {
+		if !p.SupportsAgentTools() {
+			continue
+		}
 		llmProfiles = append(llmProfiles, map[string]any{
 			"id": p.ID, "name": p.Name, "model": p.Model, "is_default": p.IsDefault,
 		})
@@ -1878,6 +1881,10 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	p := body.LLMProfile
 	p.APIKey = body.APIKey
+	if p.OAuth() && (p.APIKey != "" || strings.TrimSpace(p.Model) == "" || strings.TrimSpace(p.Name) == "") {
+		writeErr(w, 400, "OAuth profiles require a name and model, without API keys or tokens")
+		return
+	}
 	p.Streaming = body.Streaming == nil || *body.Streaming
 	// 输出上限:负数无意义,归零(= 不发送该字段)。字段名开关只有 Chat Completions
 	// 用得上——anthropic 与 openai-responses 各自定死了字段名,存下来只会误导后续读者,

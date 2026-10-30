@@ -30,6 +30,8 @@ RUN npm install -g @playwright/mcp@latest @playwright/cli@latest playwright@late
     && playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+COPY requirements-uaforge.txt /app/requirements-uaforge.txt
+RUN pip install --no-cache-dir --require-hashes -r /app/requirements-uaforge.txt
 # 미리 컴파일한 해당 아키텍처 바이너리(dist/amd64/artex 또는 dist/arm64/artex)
 COPY dist/${TARGETARCH}/artex /app/artex
 # 감시 기동 스크립트: 프로세스 종료 후 종료 코드에 따라 다시 띄울지 결정하며, 화면의 원클릭 업데이트가 이 스크립트로 교체를 완료한다.

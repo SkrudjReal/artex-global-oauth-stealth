@@ -1029,7 +1029,7 @@ export interface NotificationDelivery {
 export interface LLMProfile {
   id: string;
   name: string;
-  format: "openai" | "anthropic" | "openai-responses";
+  format: "openai" | "anthropic" | "openai-responses" | "codex-oauth" | "agy-oauth";
   base_url?: string;
   proxy?: string;
   model: string;
@@ -1613,3 +1613,16 @@ export interface InterceptExecution {
   seq: number;
   items: Activity[];
 }
+
+export type OAuthCLIKind = "codex-oauth" | "agy-oauth";
+export interface OAuthCLIStatus {
+ compatibility?: string;
+ installed: boolean;
+ authenticated: boolean;
+ state: string;
+ instruction?: string;
+ models: string[];
+ verification_url?: string;
+ user_code?: string;
+}
+export interface ExternalCLIEvent { type: string; text?: string; status?: string; usage?: Record<string, unknown>; }

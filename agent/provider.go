@@ -20,20 +20,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Autumn-27/artex/externalcli"
 	"github.com/Autumn-27/artex/llmrec"
 	"github.com/Autumn-27/norma/agentcore"
 	"github.com/Autumn-27/norma/compaction"
 	"github.com/Autumn-27/norma/llm"
 	acperm "github.com/Autumn-27/norma/permission"
+	"github.com/Autumn-27/norma/tool"
 	"github.com/Autumn-27/norma/transcript"
 )
 
 // Config describes the LLM backend resolved from the environment.
 type Config struct {
-	Format  llm.Format
-	BaseURL string
-	APIKey  string
-	Model   string
+	CLIManager   *externalcli.Manager
+	CLIProfileID int64
+	Format       llm.Format
+	BaseURL      string
+	APIKey       string
+	Model        string
 	// Proxy routes all LLM requests through the given proxy URL (http/https/socks5,
 	// optionally with user:pass@ credentials). Empty means direct — it does NOT
 	// fall back to the standard *_PROXY environment variables.
@@ -204,6 +208,8 @@ func ConfigFrom(provider, model, baseURL, apiKey, proxy string) Config {
 		Stream:  true, // 默认流式;调用方按 profile 覆盖
 	}
 	switch strings.TrimSpace(provider) {
+	case "codex-oauth", "agy-oauth":
+		c.Format = llm.Format(strings.TrimSpace(provider))
 	case "openai":
 		c.Format = llm.FormatOpenAI
 		// provider appends "/chat/completions"; tolerate a full endpoint URL.
@@ -242,6 +248,8 @@ func isFalsy(s string) bool {
 // Provider returns the short provider name ("anthropic"/"openai").
 func (c Config) Provider() string {
 	switch c.Format {
+	case "codex-oauth", "agy-oauth":
+		return string(c.Format)
 	case llm.FormatOpenAI:
 		return "openai"
 	case llm.FormatOpenAIResponses:
@@ -254,6 +262,31 @@ func (c Config) Provider() string {
 // limiter lives on the single provider instance — so planner + all workers +
 // main agent (which share this provider) are bounded by one shared rate limit.
 func (c Config) NewProvider() (llm.Provider, error) {
+	if c.Format == "codex-oauth" || c.Format == "agy-oauth" {
+		if c.CLIManager == nil {
+			return nil, fmt.Errorf("Codex CLI manager is unavailable")
+		}
+		identity := func(ctx context.Context) (string, string) {
+			ri := RunInfoFrom(ctx)
+			taskID := ""
+			if ri.TaskID != 0 {
+				taskID = fmt.Sprint(ri.TaskID)
+			}
+			sid := transcript.SessionIDFrom(ctx)
+			role := "chat"
+			switch {
+			case strings.Contains(sid, "-worker-"):
+				role = "worker"
+			case strings.HasSuffix(sid, "-planner"):
+				role = "planner"
+			case strings.Contains(sid, "-main"):
+				role = "mainagent"
+			}
+			return taskID, role
+		}
+		return llm.RateLimited(&externalcli.Provider{Kind: string(c.Format), Manager: c.CLIManager, Model: c.Model, ProfileID: c.CLIProfileID, Effort: c.ReasoningEffort, Identity: identity}, llm.RateLimit{PerSecond: c.RatePerSecond, PerMinute: c.RatePerMinute}), nil
+	}
+
 	client, err := quotaAwareHTTPClient(c.Proxy, c.SessionHeaderKey)
 	if err != nil {
 		return nil, err
@@ -459,13 +492,21 @@ func TestConnection(ctx context.Context, c Config) (time.Duration, string, error
 	if err != nil {
 		return 0, "", err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	timeout := 30 * time.Second
+	var connectionTools []tool.CoreTool
+	if c.Format == "codex-oauth" || c.Format == "agy-oauth" {
+		timeout = 90 * time.Second
+		connectionTools = []tool.CoreTool{}
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	// 抓取原始 wire 报文:连接测试最需要看到的就是网关到底回了什么(状态码+响应体),
 	// 而 norma 把响应解码成 StreamEvent 后这些就没了。quotaAwareTransport 会在
 	// context 里找到这个 Capture 并填入每次 HTTP 尝试的状态码与 body。
 	ctx, capt := llmrec.NewCapture(ctx)
-	defer logTestConnection(c, capt)
+	if c.Format != "codex-oauth" && c.Format != "agy-oauth" {
+		defer logTestConnection(c, capt)
+	}
 	// 连接测试是一条单发路径,不经过 agentcore 的会话循环,因此没人往 context 上挂
 	// session id。对配了 SessionHeaderKey 的端点(如 opencode zen 强制要求
 	// x-opencode-session 头,缺了直接 400 MissingSessionID),这会导致"对话正常、
@@ -480,6 +521,7 @@ func TestConnection(ctx context.Context, c Config) (time.Duration, string, error
 	// EscalateMaxTokens 保持 false:不因截断而抬额重试,避免 resume 循环空烧。
 	reply, err := agentcore.Run(ctx, agentcore.Options{
 		Provider:       prov,
+		Tools:          connectionTools,
 		SystemPrompt:   []string{"你是连接测试。直接输出两个字符 OK 即可，不要思考、不要解释、不要别的。"},
 		PermissionMode: acperm.ModeBypass,
 		MaxTurns:       1,
@@ -498,4 +540,9 @@ func TestConnection(ctx context.Context, c Config) (time.Duration, string, error
 		return lat, "", fmt.Errorf("模型无回复内容（请求已通，但未返回任何文本）")
 	}
 	return lat, reply, nil
+}
+
+// Ready distinguishes CLI-owned authorization from API keys.
+func (c Config) Ready() bool {
+	return (c.Format == "codex-oauth" || c.Format == "agy-oauth") && c.CLIManager != nil || c.APIKey != ""
 }

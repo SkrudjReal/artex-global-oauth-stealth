@@ -56,6 +56,9 @@ import type {
   JudgeUsage,
   LLMPoolStatus,
   LLMProfile,
+  OAuthCLIKind,
+  OAuthCLIStatus,
+  ExternalCLIEvent,
   LLMRecordDetail,
   LLMRecordItem,
   LLMRetryOverride,
@@ -972,7 +975,39 @@ export const api = {
       streaming,
       session_header_key,
     }),
-  llmProfiles: () => get<{ profiles: LLMProfile[] }>("/llm/profiles").then((r) => arr(r.profiles)),
+  oauthCLIStatus: (kind: OAuthCLIKind) => get<OAuthCLIStatus>(`/llm/oauth/${kind}`),
+  connectOAuthCLI: (kind: OAuthCLIKind) => post<OAuthCLIStatus>(`/llm/oauth/${kind}/connect`, {}),
+  disconnectOAuthCLI: (kind: OAuthCLIKind) => post<{ok: boolean}>(`/llm/oauth/${kind}/disconnect`, {}),
+  streamExternalCLI: async (profile: string, request: {task_id: string; role: "external"; session_id: string; prompt: string}, signal: AbortSignal, emit: (event: ExternalCLIEvent) => void) => {
+    const token = getToken();
+    const response = await fetch(sseUrl(`/api/llm/profiles/${encodeURIComponent(profile)}/external/stream`), {
+      method: "POST", signal,
+      headers: {"Content-Type":"application/json", ...(token ? {Authorization: `Bearer ${token}`} : {})},
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) { const error = await response.json(); throw new Error(error.error || `HTTP ${response.status}`); }
+    if (!response.body) throw new Error("Streaming response unavailable");
+    const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ""; let terminal = false;
+    try {
+      for (;;) {
+        const {done, value} = await reader.read();
+        buffer += decoder.decode(value, {stream: !done});
+        let boundary: number;
+        while ((boundary = buffer.indexOf("\n\n")) >= 0) {
+          const frame = buffer.slice(0, boundary); buffer = buffer.slice(boundary+2);
+          for (const line of frame.split("\n")) if (line.startsWith("data: ")) {
+            const event = JSON.parse(line.slice(6)) as ExternalCLIEvent;
+            emit(event); if (event.type === "error") throw new Error(event.status || "External agent failed");
+            if (event.type === "result") terminal = true;
+          }
+        }
+        if (done) break;
+        if (buffer.length > 4*1024*1024) throw new Error("CLI event exceeded size limit");
+      }
+      if (!terminal) throw new Error("CLI stream closed before completion");
+    } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+  },
+  llmProfiles: (_includeExternal = false) => get<{ profiles: LLMProfile[] }>("/llm/profiles").then((r) => arr(r.profiles)),
   saveLLMProfile: (p: {
     id?: number; // omit/0 = create; set = update that profile
     name: string;

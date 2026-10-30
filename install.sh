@@ -99,6 +99,10 @@ JSON
   command -v go >/dev/null 2>&1 || die "Go 를 찾을 수 없습니다. 먼저 Go (>=1.26) 를 설치해 주세요: https://go.dev/dl/"
   ok "Go: $(go version)"
 
+  python3 -m venv .venv-uaforge
+  .venv-uaforge/bin/pip install --require-hashes -r requirements-uaforge.txt
+  export ARTEX_UAFORGE_PYTHON="$PWD/.venv-uaforge/bin/python3"
+
   # 프런트엔드를 내장하려면 node 로 정적 산출물을 만들어야 합니다
   if command -v npm >/dev/null 2>&1; then
     info "프런트엔드 정적 산출물을 빌드합니다…"

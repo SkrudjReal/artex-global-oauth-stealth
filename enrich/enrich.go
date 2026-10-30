@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/internal/uaforge"
+	"github.com/google/uuid"
 
 	"github.com/miekg/dns"
 	"github.com/projectdiscovery/dnsx/libs/dnsx"
@@ -107,11 +109,35 @@ func buildClient(proxy func() string) *http.Client {
 		}
 	}
 	return &http.Client{
-		Transport: tr,
+		Transport: &identityTransport{base: tr, sessionID: uuid.NewString()},
 		Timeout:   httpTimeout,
 		// cap redirects; keep them within scope by re-checking at probe time
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
+}
+
+// One browser identity per engine client, shared safely by its workers.
+type identityTransport struct {
+	base      http.RoundTripper
+	sessionID string
+	once      sync.Once
+	headers   map[string]string
+	err       error
+}
+
+func (t *identityTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	t.once.Do(func() {
+		t.headers, t.err = uaforge.Headers(req.Context(), t.sessionID)
+		if t.err != nil {
+			log.Printf("[enrich] UAForge initialization failed: %v", t.err)
+		}
+	})
+	if t.err != nil {
+		return nil, t.err
+	}
+	cloned := req.Clone(req.Context())
+	uaforge.Apply(cloned, t.headers)
+	return t.base.RoundTrip(cloned)
 }
 
 // ResolveDomain enqueues a DNS resolution for a domain asset (ungated). host is the
@@ -230,7 +256,6 @@ func (e *Engine) doHTTP(id int64, rawURL string) {
 	if err != nil {
 		return
 	}
-	req.Header.Set("User-Agent", "artex-enrich/1.0")
 	resp, err := e.client.Do(req)
 	if err != nil {
 		return

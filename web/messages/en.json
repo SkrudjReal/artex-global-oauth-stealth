@@ -3286,7 +3286,7 @@
       },
       "order": {
         "label": "Rotation order",
-        "tooFew": "Only {n} profile(s) are currently usable, so rotation won't work. You need API Keys filled in and at least 2 profiles taking part in the rotation."
+        "tooFew": "Only {n} profile(s) are currently usable, so rotation won't work. You need valid API Key or supported OAuth profiles, with at least 2 profiles taking part in the rotation."
       },
       "recoverAll": "Recover all",
       "badge": {

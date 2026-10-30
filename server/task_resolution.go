@@ -41,7 +41,11 @@ func (s *Server) resolutionFromProfile(p *db.LLMProfile, source string) taskLLMR
 		Model:     p.Model,
 		Source:    source,
 	}
-	if p.APIKey == "" {
+	if !p.SupportsAgentTools() {
+		result.Reason = "External Agent only: Planner/Worker tool calling is not verified"
+		return result
+	}
+	if p.APIKey == "" && !p.OAuth() {
 		result.Reason = reasonLLMProfileNoAPIKey
 		return result
 	}
