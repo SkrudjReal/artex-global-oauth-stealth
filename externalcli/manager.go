@@ -22,6 +22,7 @@ type Event struct {
 type Request struct {
 	Kind      string
 	Model     string
+	Effort    string `json:"-"`
 	ProfileID int64
 	TaskID    string `json:"task_id"`
 	Role      string `json:"role"`
@@ -41,6 +42,7 @@ type session struct {
 	SessionID string         `json:"session_id"`
 	dir       string
 	last      time.Time
+	effort    string
 }
 type Manager struct {
 	ctx          context.Context
@@ -234,6 +236,11 @@ func (m *Manager) Run(ctx context.Context, req Request, emit func(Event) error) 
 		return errors.New("this CLI session already has an active request")
 	}
 	defer s.mu.Unlock()
+	if req.Kind == Agy && s.p != nil && s.effort != req.Effort {
+		s.p.close()
+		s.p = nil
+	}
+	s.effort = req.Effort
 	select {
 	case m.limit <- struct{}{}:
 		defer func() { <-m.limit }()

@@ -27,14 +27,16 @@ type Provider struct {
 }
 
 type providerState struct {
-	Usage       llm.Usage     `json:"native_usage,omitempty"`
-	History     []llm.Message `json:"history"`
-	Tools       string        `json:"tools"`
-	System      string        `json:"system"`
-	Dirty       bool          `json:"dirty"`
-	Awaiting    bool          `json:"awaiting_tool"`
-	cancelWatch func() bool   `json:"-"`
-	Pending     *wire         `json:"-"`
+	AGYRetry    *agyRetryState `json:"agy_retry,omitempty"`
+	PromptFile  bool           `json:"prompt_file,omitempty"`
+	Usage       llm.Usage      `json:"native_usage,omitempty"`
+	History     []llm.Message  `json:"history"`
+	Tools       string         `json:"tools"`
+	System      string         `json:"system"`
+	Dirty       bool           `json:"dirty"`
+	Awaiting    bool           `json:"awaiting_tool"`
+	cancelWatch func() bool    `json:"-"`
+	Pending     *wire          `json:"-"`
 }
 
 func sameItems(a, b any) bool {

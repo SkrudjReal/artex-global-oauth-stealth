@@ -21,7 +21,7 @@ func TestLiveProviderToolCycle(t *testing.T) {
 	defer m.Close()
 	ctx, cancel := context.WithTimeout(transcript.WithSessionID(context.Background(), "provider-test-"+transcript.NewSessionID()), 90*time.Second)
 	defer cancel()
-	p := &Provider{Manager: m, Model: "gpt-6.1-sol", ProfileID: 999990}
+	p := &Provider{Manager: m, Model: "gpt-6.1-sol", ProfileID: 999990, Effort: "low"}
 	req := llm.CompletionRequest{System: []string{"Use only ARTEX tools. First call artex_echo with value hello, then report the exact tool result. Never invent a result."}, Messages: []llm.Message{llm.UserText("Call artex_echo now and report its result.")}, Tools: []llm.ToolSchema{{Name: "artex_echo", Description: "Echo a value through ARTEX", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"value": map[string]string{"type": "string"}}, "required": []string{"value"}, "additionalProperties": false}}}}
 	msg, reason, _, err := p.Complete(ctx, req)
 	if err != nil {

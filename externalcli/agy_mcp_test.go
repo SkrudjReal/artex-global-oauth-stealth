@@ -317,9 +317,19 @@ func TestLiveAGYSystemUpdateCapability(t *testing.T) {
 
 	req.System = []string{"Always answer with exactly ARTEX_SYSTEM_B. No other words."}
 	req.Messages = append(req.Messages, first, llm.UserText("What is your marker now?"))
-	_, _, _, err = p.Complete(ctx, req)
-	if err == nil || !strings.Contains(err.Error(), "original system prompt") {
-		t.Fatal("AGY silently accepted an unsupported system update")
+	next, _, _, err := p.Complete(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(next.Text(), "ARTEX_SYSTEM_B") {
+		t.Fatalf("Gemini did not read updated prompt file: %q", next.Text())
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range m.sessions {
+		if s.p == nil || s.agy.bridge.promptRead.Load() != s.agy.bridge.promptGeneration.Load() {
+			t.Fatal("current prompt.txt not read")
+		}
 	}
 
 }

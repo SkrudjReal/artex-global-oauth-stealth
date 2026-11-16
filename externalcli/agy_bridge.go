@@ -8,7 +8,9 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Autumn-27/norma/llm"
@@ -21,15 +23,18 @@ type mcpCall struct {
 	Done      <-chan struct{}
 }
 type agyBridge struct {
-	URL    string
-	Calls  chan *mcpCall
-	server *http.Server
-	cancel context.CancelFunc
-	ctx    context.Context
-	tools  []llm.ToolSchema
+	URL              string
+	Calls            chan *mcpCall
+	server           *http.Server
+	cancel           context.CancelFunc
+	ctx              context.Context
+	tools            []llm.ToolSchema
+	promptPath       string
+	promptGeneration atomic.Uint64
+	promptRead       atomic.Uint64
 }
 
-func newAGYBridge(parent context.Context, tools []llm.ToolSchema) (*agyBridge, error) {
+func newAGYBridge(parent context.Context, tools []llm.ToolSchema, promptPath string) (*agyBridge, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
@@ -40,7 +45,7 @@ func newAGYBridge(parent context.Context, tools []llm.ToolSchema) (*agyBridge, e
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(parent)
-	b := &agyBridge{URL: "http://" + listener.Addr().String() + "/" + hex.EncodeToString(secret[:]), Calls: make(chan *mcpCall, 1), ctx: ctx, cancel: cancel, tools: tools}
+	b := &agyBridge{URL: "http://" + listener.Addr().String() + "/" + hex.EncodeToString(secret[:]), Calls: make(chan *mcpCall, 1), ctx: ctx, cancel: cancel, tools: tools, promptPath: promptPath}
 	b.server = &http.Server{Handler: http.HandlerFunc(b.serve), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 8192}
 	go func() { _ = b.server.Serve(listener) }()
 	return b, nil
@@ -78,6 +83,9 @@ func (b *agyBridge) serve(w http.ResponseWriter, r *http.Request) {
 		result = map[string]any{}
 	case "tools/list":
 		tools := []any{}
+		if b.promptPath != "" {
+			tools = append(tools, map[string]any{"name": "artex_read_prompt", "description": "Read the current ARTEX request instructions from its session prompt.txt file. Read before answering or using other tools.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, "annotations": map[string]bool{"readOnlyHint": true}})
+		}
 		for _, tool := range b.tools {
 			tools = append(tools, map[string]any{"name": tool.Name, "description": tool.Description, "inputSchema": tool.InputSchema})
 		}
@@ -88,6 +96,26 @@ func (b *agyBridge) serve(w http.ResponseWriter, r *http.Request) {
 			Arguments json.RawMessage `json:"arguments"`
 		}
 		valid := json.Unmarshal(q.Params, &args) == nil && json.Valid(args.Arguments)
+		if valid && args.Name == "artex_read_prompt" && b.promptPath != "" {
+			generation := b.promptGeneration.Load()
+			info, e := os.Lstat(b.promptPath)
+			if e != nil || !info.Mode().IsRegular() {
+				rpcErr = map[string]any{"code": -32603, "message": "ARTEX prompt must be a regular session file"}
+				break
+			}
+			raw, e := os.ReadFile(b.promptPath)
+			if e != nil {
+				rpcErr = map[string]any{"code": -32603, "message": "ARTEX prompt file unavailable"}
+				break
+			}
+			b.promptRead.Store(generation)
+			result = map[string]any{"content": []any{map[string]string{"type": "text", "text": string(raw)}}, "isError": false}
+			break
+		}
+		if b.promptPath != "" && b.promptRead.Load() != b.promptGeneration.Load() {
+			rpcErr = map[string]any{"code": -32602, "message": "Read the current prompt.txt using artex_read_prompt first"}
+			break
+		}
 		found := false
 		for _, tool := range b.tools {
 			if args.Name == tool.Name {

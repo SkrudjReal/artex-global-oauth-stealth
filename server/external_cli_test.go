@@ -85,7 +85,7 @@ func TestLiveOAuthHTTPStreaming(t *testing.T) {
 			if !status.Authenticated || len(status.Models) == 0 {
 				t.Skip("OAuth login required")
 			}
-			id, err := pg.SaveProfile(&db.LLMProfile{Name: kind, Format: kind, Model: status.Models[0]})
+			id, err := pg.SaveProfile(&db.LLMProfile{Name: kind, Format: kind, Model: status.Models[0], ReasoningEffort: "low"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -101,7 +101,7 @@ func TestLiveOAuthHTTPStreaming(t *testing.T) {
 				if !s.resolutionFromProfile(profile, "test").Available {
 					t.Fatal("OAuth role resolution failed")
 				}
-				body, _ := json.Marshal(map[string]any{"provider": kind, "model": status.Models[0], "profile_id": id})
+				body, _ := json.Marshal(map[string]any{"provider": kind, "model": status.Models[0], "profile_id": id, "reasoning_effort": "low"})
 				check, _ := http.NewRequestWithContext(t.Context(), "POST", server.URL+"/api/llm/test", bytes.NewReader(body))
 				check.Header.Set("Authorization", "Bearer "+token)
 				response, err := http.DefaultClient.Do(check)

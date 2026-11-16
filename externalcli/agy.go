@@ -8,6 +8,18 @@ import (
 	"strings"
 )
 
+// AGY rejects a model's effort suffix when it conflicts with --effort.
+func agyModel(model, effort string) string {
+	if effort != "" {
+		for _, level := range []string{"low", "medium", "high", "xhigh", "max"} {
+			if strings.HasSuffix(model, "-"+level) {
+				return strings.TrimSuffix(model, "-"+level)
+			}
+		}
+	}
+	return model
+}
+
 func (m *Manager) agy(ctx context.Context, s *session, prompt string, emit func(Event) error) error {
 	if s.p != nil {
 		select {
@@ -17,9 +29,12 @@ func (m *Manager) agy(ctx context.Context, s *session, prompt string, emit func(
 		}
 	}
 	if s.p == nil {
-		args := []string{"--print=", "--input-format", "stream-json", "--output-format", "stream-json", "--model", s.Model, "--mode", "plan", "--sandbox", "--disable-slash-commands", "--log-file", "/dev/null"}
+		args := []string{"--print=", "--input-format", "stream-json", "--output-format", "stream-json", "--model", agyModel(s.Model, s.effort), "--mode", "plan", "--sandbox", "--disable-slash-commands", "--log-file", "/dev/null"}
 		if s.ThreadID != "" {
 			args = append(args, "--conversation", s.ThreadID)
+		}
+		if s.effort != "" {
+			args = append(args, "--effort", s.effort)
 		}
 		p, err := m.start(Agy, filepath.Join(s.dir, "work"), args...)
 		if err != nil {

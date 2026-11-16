@@ -15,6 +15,7 @@ export function OAuthCLIProfile({profile, kind, onKindChange, onSaved, onClose}:
  const [excluded,setExcluded]=React.useState(profile?.pool_exclude??false);
  const [name,setName]=React.useState(profile?.name??"");
  const [model,setModel]=React.useState(profile?.model??"");
+ const [effort,setEffort]=React.useState(profile?.reasoning_effort||"default");
  const [status,setStatus]=React.useState<OAuthCLIStatus|null>(null);
  const [busy,setBusy]=React.useState(false);
  const [running,setRunning]=React.useState(false);
@@ -42,7 +43,7 @@ export function OAuthCLIProfile({profile, kind, onKindChange, onSaved, onClose}:
  }
  async function save(){
   setBusy(true);setMessage("");
-  try{const result=await api.saveLLMProfile({id:profile?Number(profile.id):undefined,name,model,format:kind,pool_exclude:kind==="agy-oauth"||excluded,streaming:true});onSaved(String(result.id));onClose()}
+  try{const result=await api.saveLLMProfile({id:profile?Number(profile.id):undefined,name,model,reasoning_effort:effort==="default"?"":effort,format:kind,pool_exclude:kind==="agy-oauth"||excluded,streaming:true});onSaved(String(result.id));onClose()}
   catch(e){setMessage((e as Error).message)}finally{setBusy(false)}
  }
  async function run(check=false){
@@ -54,11 +55,11 @@ export function OAuthCLIProfile({profile, kind, onKindChange, onSaved, onClose}:
    if(event.status)setMessage(event.status);
    if(event.usage)setUsage(JSON.stringify(event.usage));
   };
-  try{if(check){const result=await api.testLLM(kind,model,"","","","","",Number(profile.id));if(!result.ok)throw new Error(result.error??"Connection failed");setOutput(result.reply??"");setMessage("connected");setStatus(await api.oauthCLIStatus(kind));return}await api.streamExternalCLI(profile.id,{task_id:check?"":task,role:"external",session_id:check?`connection-check-${crypto.randomUUID()}`:session,prompt:check?"Reply only OK. Do not use tools or execute commands.":prompt},abort.signal,emit);setStatus(await api.oauthCLIStatus(kind))}
+  try{if(check){const result=await api.testLLM(kind,model,"","","","",effort==="default"?"":effort,Number(profile.id));if(!result.ok)throw new Error(result.error??"Connection failed");setOutput(result.reply??"");setMessage("connected");setStatus(await api.oauthCLIStatus(kind));return}await api.streamExternalCLI(profile.id,{task_id:check?"":task,role:"external",session_id:check?`connection-check-${crypto.randomUUID()}`:session,prompt:check?"Reply only OK. Do not use tools or execute commands.":prompt},abort.signal,emit);setStatus(await api.oauthCLIStatus(kind))}
   catch(e){setMessage(abort.signal.aborted?"cancelled":(e as Error).message)}finally{setRunning(false);controller.current=null}
  }
  return <>
-  <SheetHeader><SheetTitle>OAuth CLI</SheetTitle><SheetDescription>{kind==="codex-oauth"?"Codex supports ARTEX chat, Planner and Worker through native dynamic tools. ARTEX controls tool execution and permissions.":"Antigravity uses real MCP calls with ARTEX permissions. Start a new chat when importing, editing or compacting history; system prompt changes require a new session, and pending calls cannot change tools."} Connect can reuse existing authorization; history stays separate. Disconnect leaves the original login intact.</SheetDescription></SheetHeader>
+  <SheetHeader><SheetTitle>OAuth CLI</SheetTitle><SheetDescription>{kind==="codex-oauth"?"Codex supports ARTEX chat, Planner and Worker through native dynamic tools. ARTEX controls tool execution and permissions.":"Antigravity uses real MCP calls with ARTEX permissions. Gemini reads each prompt and agent instructions from a private session .txt file. Other AGY models keep fixed system instructions. Start a new chat when importing, editing or compacting history; pending calls cannot change tools."} Connect can reuse existing authorization; history stays separate. Disconnect leaves the original login intact.</SheetDescription></SheetHeader>
   <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4">
    <Label htmlFor="oauth-auth">Authentication</Label>
    <Select value={kind} disabled={!!profile||busy||running} onValueChange={value=>onKindChange(value as LLMProfile["format"])}><SelectTrigger id="oauth-auth"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="anthropic">API Key</SelectItem><SelectItem value="codex-oauth">Codex CLI (ChatGPT OAuth)</SelectItem><SelectItem value="agy-oauth">Antigravity CLI / agy (Google OAuth)</SelectItem></SelectContent></Select>
@@ -73,6 +74,9 @@ export function OAuthCLIProfile({profile, kind, onKindChange, onSaved, onClose}:
    {status?.instruction&&<div className="rounded border p-3 text-sm"><p>Terminal login / keyring instructions:</p><code className="break-all whitespace-pre-wrap">{status.instruction}</code></div>}
    {status?.verification_url?.startsWith("https://")&&<p>Open <a className="underline" href={status.verification_url} target="_blank" rel="noreferrer">official login</a> and enter <strong>{status.user_code}</strong>. Then check connection.</p>}
    <Label htmlFor="oauth-model">Model</Label><Input id="oauth-model" list="oauth-models" value={model} onChange={e=>setModel(e.target.value)} placeholder="Choose an available CLI model"/><datalist id="oauth-models">{status?.models.map(value=><option key={value} value={value}/>)}</datalist>
+   <Label htmlFor="oauth-effort">Reasoning effort</Label>
+   <Select value={effort} onValueChange={setEffort} disabled={busy||running}><SelectTrigger id="oauth-effort" aria-describedby="oauth-effort-hint"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="default">Model default</SelectItem>{(kind==="agy-oauth"?["low","medium","high","xhigh","max"]:["none","minimal","low","medium","high","xhigh"]).map(value=><SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select>
+   <p id="oauth-effort-hint" className="text-muted-foreground text-xs">Overrides the model default for this profile. Supported levels depend on the selected model. Save to apply to Chat, Planner and Worker.</p>
    {kind==="codex-oauth"&&<label className="flex gap-2"><input type="checkbox" checked={excluded} onChange={e=>setExcluded(e.target.checked)}/>Exclude from rotation</label>}
    <Button disabled={busy||running||!name.trim()||!model.trim()} onClick={()=>void save()}>Save profile</Button>
    {profile&&<>

@@ -68,7 +68,7 @@ func (m *Manager) control(ctx context.Context, kind string) (*session, error) {
 func (m *Manager) Status(ctx context.Context, kind string) (Status, error) {
 	result := Status{State: "not_installed", Models: []string{}}
 	if kind == Agy {
-		result.Compatibility = "MCP tools supported; fixed system prompt/history (AGY 1.4.11+)"
+		result.Compatibility = "MCP tools; Gemini prompts via session .txt files (AGY 1.4.11+)"
 	} else {
 		result.Compatibility = "ARTEX tool calling"
 	}

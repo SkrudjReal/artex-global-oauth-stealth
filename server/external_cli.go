@@ -69,6 +69,7 @@ func (s *Server) externalStream(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Kind = profile.Format
 	req.Model = profile.Model
+	req.Effort = profile.ReasoningEffort
 	req.ProfileID = profile.ID
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()

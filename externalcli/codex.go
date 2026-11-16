@@ -66,7 +66,11 @@ func (m *Manager) codex(ctx context.Context, s *session, prompt string, emit fun
 	p := s.p
 	stop := context.AfterFunc(ctx, p.close)
 	defer stop()
-	raw, err := p.rpc(ctx, "turn/start", map[string]any{"threadId": s.ThreadID, "input": []any{map[string]any{"type": "text", "text": prompt}}, "approvalPolicy": "untrusted"})
+	params := map[string]any{"threadId": s.ThreadID, "input": []any{map[string]any{"type": "text", "text": prompt}}, "approvalPolicy": "untrusted"}
+	if s.effort != "" {
+		params["effort"] = s.effort
+	}
+	raw, err := p.rpc(ctx, "turn/start", params)
 	if err != nil {
 		return err
 	}

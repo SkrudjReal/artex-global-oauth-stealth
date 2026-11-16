@@ -3,6 +3,11 @@
 In `/system/llm/`, create a profile and select **Codex CLI (ChatGPT OAuth)** or
 **Antigravity CLI / agy (Google OAuth)**. Connect, select a model from the CLI
 catalog, and save. Reopen the profile to check a real response or run a message.
+**Reasoning effort** overrides the model default for this profile, including
+Chat, Planner, Worker and External Agent. **Model default** omits the override.
+AGY removes a conflicting effort suffix from the model name before passing
+`--effort`; supported levels still depend on the model. Changes apply to the next
+native turn (an already pending tool call keeps its original turn settings).
 The Stop button, disconnecting the browser, task pause/completion, and server
 shutdown cancel the running request and terminate its process group.
 
@@ -36,18 +41,40 @@ Each session has a private workspace MCP config and custom agent. MCP calls yiel
 structured ARTEX tool events; host results return on the same pending HTTP call.
 Skill guidance is attached as extra text content in the real MCP tool result.
 Streaming and tool events use the existing ARTEX Provider/SSE pipeline.
+AGY can return Google's prompt-policy refusal with native status `SUCCESS`
+before the agent reads any instructions. ARTEX displays that refusal verbatim;
+it is not a successful execution of the task. It does not trigger the unread-file
+reminder or relax prompt-read checks for ordinary answers and tool calls.
+
+For **Gemini models through AGY**, every ARTEX Provider request atomically replaces
+`<session>/work/prompt.txt` (0600), containing the current ARTEX agent instructions,
+new user/host guidance and tool-result text. The CLI receives a short instruction
+to read that exact file through the read-only `artex_read_prompt` MCP transport
+tool and continue. The tool cannot select arbitrary files; domain tool calls remain
+under ARTEX permissions. Completion and domain calls require a read of the current
+file revision. Tool-result continuations also update the file and return a file-read
+directive instead of duplicating result text inline. If Gemini skips the read,
+ARTEX suppresses that text and sends one reminder, then fails if it still skips it. Gemini instructions can therefore change in the same native conversation;
+this does not mutate the CLI's immutable native system prompt. Existing sessions
+created before this transport require a new ARTEX session once.
 
 **Not fully API-compatible:** AGY cannot import/replace structured history,
-recover a pending MCP connection after process death, or change the original system
-prompt on conversation resume. Those cases fail closed and require a new ARTEX
-session; actions are never replayed. Tool schemas can be reloaded between completed
+recover a pending MCP connection after process death, or change the original native system
+prompt on conversation resume. Gemini uses the file-based instruction transport
+above; other AGY models require a new session for changed instructions. Unsupported
+history/pending-connection recovery cases fail closed and require a new session;
+actions are never replayed. Interrupted requests before a task tool is handed to
+ARTEX retain a retry checkpoint, including across server restarts. Legacy
+interrupted sessions with only user text can start a fresh native conversation
+automatically. Tool schemas can be reloaded between completed
 turns by restarting the CLI with the same conversation ID; changing them during a
 pending call is rejected. Native usage is cumulative and converted to deltas.
 
 Observed protocol evidence on native AGY 1.4.11: custom-agent body instructed
 `ARTEX_SYSTEM_A`; first reply was `ARTEX_SYSTEM_A`. After changing the body to
 `ARTEX_SYSTEM_B`, restarting the CLI with `--agent` and the same `--conversation`
-still returned `ARTEX_SYSTEM_A`. The adapter rejects this update explicitly.
+still returned `ARTEX_SYSTEM_A`. Other AGY models reject this update explicitly; Gemini now reads updated agent
+instructions from the current prompt.txt instead.
 Geminka's role-labelled text bootstrap is not used to simulate system/history or
 tool calls. `open-antigravity` internal language-server access and eager command
 approval are not used. A native conversation-import/system-update CLI API (or a

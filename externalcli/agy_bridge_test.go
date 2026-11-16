@@ -12,7 +12,7 @@ import (
 )
 
 func TestAGYBridgeBoundariesAndResult(t *testing.T) {
-	bridge, err := newAGYBridge(t.Context(), []llm.ToolSchema{{Name: "echo", InputSchema: map[string]any{"type": "object"}}})
+	bridge, err := newAGYBridge(t.Context(), []llm.ToolSchema{{Name: "echo", InputSchema: map[string]any{"type": "object"}}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
