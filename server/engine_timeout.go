@@ -80,7 +80,7 @@ func (e *Engine) taskDeadline(t *Task) int64 {
 }
 
 // resetTimeoutRevival clears only the per-run timeout state after PostgreSQL has
-// atomically committed timeout -> running and reset first_run_at/deadline_at. The
+// atomically revived a terminal task and reset first_run_at/deadline_at. The
 // configured TimeoutSeconds remains on Task, so the next real Planner/Worker run
 // stamps a fresh full budget. coordStarted is reset because the coordinator that
 // produced the timeout has already completed (or is in its final return path).

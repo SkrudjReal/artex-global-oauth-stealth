@@ -3259,7 +3259,8 @@
       "priority": "우선순위 {priority}",
       "active": "활성됨",
       "activate": "활성으로 설정",
-      "deleteAria": "설정 삭제"
+      "deleteAria": "설정 삭제",
+      "systemInstructionsBadge": "개별 지침"
     },
     "health": {
       "noKey": {
@@ -3413,6 +3414,12 @@
         "savedActive": "저장했습니다. 활성 설정은 즉시 적용되며 재시작이 필요 없습니다",
         "saved": "저장했습니다",
         "saveFailed": "저장 실패: {msg}"
+      },
+      "systemInstructions": {
+        "label": "System Instructions",
+        "hint": "ARTEX 역할 프롬프트 앞에 추가되는 모델별 지침입니다. 프로필별로 저장되며 기본값은 비어 있습니다.",
+        "placeholder": "이 LLM 프로필에만 적용할 선택적 지침을 입력하세요...",
+        "clear": "지우기"
       }
     },
     "retryLayer": {
@@ -3487,6 +3494,47 @@
         "loadFailed": "재시도 정책 읽기 실패: {msg}",
         "saved": "저장했습니다. 즉시 적용됩니다(지금 진행 중인 이번 호출은 이전 값을 그대로 씁니다)",
         "saveFailed": "저장 실패: {msg}"
+      }
+    },
+    "promptCache": {
+      "title": "Prompt Caching",
+      "subtitle": "이 프로필에서 관측된 API 캐시 상태, 토큰 통계 및 선택적 단가 설정입니다.",
+      "reset": "통계 초기화",
+      "resetTitle": "프로필 설정을 유지한 채 프롬프트 캐시 통계만 초기화합니다",
+      "resetToast": "프롬프트 캐시 통계를 초기화했습니다",
+      "cardTooltip": "전략: {strategy} · 캐시됨: {cached} · 미캐시 입력: {uncached}",
+      "strategyLabel": "전략",
+      "lastHitLabel": "마지막 캐시 히트",
+      "never": "없음",
+      "hitRatioLabel": "캐시 히트율",
+      "cachedTokensLabel": "캐시된 토큰",
+      "uncachedTokensLabel": "미캐시 입력",
+      "requestsUsageLabel": "관측된 요청",
+      "lastRequestLine": "최근 호출: 캐시 {cached} / 미캐시 {uncached} (총 입력 {total})",
+      "billingDiscountLabel": "요금 할인",
+      "discountConfirmed": "확인됨 {pct}% (절감 {savings})",
+      "discountNone": "캐시 토큰 할인 없음",
+      "discountUnknown": "알 수 없음 (미확인)",
+      "totalCost": "추정 비용: {amount}",
+      "maxCostWithoutDiscount": "할인 미적용 상한: {amount}",
+      "discountDisclaimer": "cached_tokens 보고는 프리픽스 재사용만 증명하며, 아래에 낮은 캐시 단가가 검증되지 않는 한 요금 할인을 보장하지 않습니다.",
+      "ratesTitle": "선택적 토큰 단가 (USD / 1M)",
+      "ratesHint": "단가를 모르면 비워 두세요. 확인되지 않은 캐시 할인을 임의로 가정하지 않습니다.",
+      "rateInput": "입력 단가",
+      "rateCached": "캐시 입력 단가",
+      "rateOutput": "출력 단가",
+      "ratePlaceholder": "알 수 없음",
+      "status": {
+        "unknown": "알 수 없음",
+        "observed_hit": "캐시 히트 관측",
+        "observed_miss": "캐시 미스 관측",
+        "metrics_unavailable": "메트릭 미제공",
+        "native_unsupported": "네이티브 미지원"
+      },
+      "strategy": {
+        "automatic": "자동",
+        "native": "네이티브 캐시 제어",
+        "standard": "표준 호환"
       }
     }
   },

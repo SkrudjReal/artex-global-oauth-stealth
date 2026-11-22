@@ -9,6 +9,7 @@ import (
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/guard"
 	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/artex/llmrec"
 	"github.com/Autumn-27/norma/agentcore"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/permission"
@@ -81,10 +82,30 @@ func chatWorkDirSpec(workDir string) string {
 	return "\n\n**文件输出规约**：需要写文件时，一律写到工作目录 " + workDir + "（这是默认 CWD，相对路径即落在这里，也可用该绝对路径）——不要写 /tmp 或其他绝对路径。"
 }
 
+// chatDefaultPrompt returns the fallback prompt template for conversational roles
+// run through ChatAgent (auto, pentest, reporter, retester, and custom agents).
+func chatDefaultPrompt(agentKey string) string {
+	if tmpl, ok := BuiltinPromptSeeds()[agentKey]; ok && tmpl != "" {
+		return tmpl
+	}
+	switch agentKey {
+	case "reporter":
+		return ReporterDefaultPrompt
+	case "retester":
+		return RetesterDefaultPrompt
+	default:
+		return DefaultAssistantPrompt
+	}
+}
+
+func chatStaticSystem(agentKey, dataDir string) string {
+	return renderSystem(agentKey, chatDefaultPrompt(agentKey), chatVars{DataDir: dataDir, Now: nowStr()}) + mcpToolEfficiencyPolicy() + langDirective(resolveOutputLang())
+}
+
 // chatSystem renders the DB-managed prompt body for agentKey. Custom agents have
 // no per-key in-code default, so DefaultAssistantPrompt is the render fallback.
 func chatSystem(agentKey, dataDir, workDir string) string {
-	return renderSystem(agentKey, DefaultAssistantPrompt, chatVars{DataDir: dataDir, Now: nowStr()}) + chatWorkDirSpec(workDir) + langDirective(resolveOutputLang())
+	return chatStaticSystem(agentKey, dataDir) + chatWorkDirSpec(workDir)
 }
 
 // chatVars carries the runtime variables a custom agent's prompt may reference.
@@ -120,10 +141,12 @@ func (c *ChatAgent) Chat(ctx context.Context, agentKey, sessionID, message strin
 	// have no tools-table rows, so they always pass through.
 	base := actool.DefaultTools()
 	ctx = WithRunInfo(ctx, RunInfo{SessionID: sessionID})
+	ctx = llmrec.WithWorker(ctx, agentKey)
 	tools, def, cleanup := AugmentTools(ctx, agentKey, base)
 	defer cleanup()
 
-	system, boundary := deferredSystem(chatSystem(agentKey, c.workDir, sessionWorkDir), def)
+	system, boundary := deferredSystem(chatStaticSystem(agentKey, c.workDir), def)
+	system = append(system, chatWorkDirSpec(sessionWorkDir))
 	opts := agentcore.Options{
 		Provider:        c.prov,
 		SystemPrompt:    system,

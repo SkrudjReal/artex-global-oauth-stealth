@@ -86,3 +86,10 @@ secrets.env
 
 # Local UAForge Python environment
 .venv-uaforge/
+/integrations/
+/exports/
+/graphify-out/
+/PROJECT_CONTEXT.md
+*.bak
+/.artex-*-next
+__pycache__/

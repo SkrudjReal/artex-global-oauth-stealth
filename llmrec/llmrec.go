@@ -9,9 +9,11 @@ import (
 	"iter"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/llmcache"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/transcript"
 )
@@ -60,6 +62,8 @@ func workerFrom(ctx context.Context) string {
 	return strings.TrimSpace(worker)
 }
 
+const maxRecentDiagnostics = 64
+
 // Recorder wraps an llm.Provider and records every completion call.
 type Recorder struct {
 	inner llm.Provider
@@ -72,6 +76,11 @@ type Recorder struct {
 	thinkingType    string
 	reasoningEffort string
 	enabled         func() bool // reports whether recording is currently on; nil = always record
+
+	diagMu          sync.Mutex
+	recentDiag      []RequestDiagnostics
+	onDiag          func(RequestDiagnostics)
+	diagFullPayload func() bool
 }
 
 // Wrap returns a Provider that records calls to pg when enabled() reports true.
@@ -83,6 +92,67 @@ func Wrap(inner llm.Provider, pg *db.DB, model, profName, thinkingType, reasonin
 		inner: inner, pg: pg, model: model, prof: profName,
 		thinkingType: thinkingType, reasoningEffort: reasoningEffort, enabled: enabled,
 	}
+}
+
+// SetDiagnosticsHook registers an optional local callback invoked with the
+// safe per-request provenance and SHA-256 diagnostics on every LLM call.
+func (r *Recorder) SetDiagnosticsHook(fn func(RequestDiagnostics)) {
+	r.diagMu.Lock()
+	r.onDiag = fn
+	r.diagMu.Unlock()
+}
+
+// SetDiagnosticFullPayload wires an optional predicate that enables secret-redacted
+// full payload dumping inside RequestDiagnostics. When nil, falls back to
+// DiagnosticFullPayloadEnabled().
+func (r *Recorder) SetDiagnosticFullPayload(fn func() bool) {
+	r.diagMu.Lock()
+	r.diagFullPayload = fn
+	r.diagMu.Unlock()
+}
+
+// LastDiagnostics returns the most recent request's diagnostic metadata.
+func (r *Recorder) LastDiagnostics() (RequestDiagnostics, bool) {
+	r.diagMu.Lock()
+	defer r.diagMu.Unlock()
+	if len(r.recentDiag) == 0 {
+		return RequestDiagnostics{}, false
+	}
+	return r.recentDiag[len(r.recentDiag)-1], true
+}
+
+// RecentDiagnostics returns a copy of the bounded recent request diagnostics.
+func (r *Recorder) RecentDiagnostics() []RequestDiagnostics {
+	r.diagMu.Lock()
+	defer r.diagMu.Unlock()
+	out := make([]RequestDiagnostics, len(r.recentDiag))
+	copy(out, r.recentDiag)
+	return out
+}
+
+func (r *Recorder) recordDiagnostics(d RequestDiagnostics) {
+	r.diagMu.Lock()
+	if len(r.recentDiag) >= maxRecentDiagnostics {
+		copy(r.recentDiag, r.recentDiag[1:])
+		r.recentDiag[len(r.recentDiag)-1] = d
+	} else {
+		r.recentDiag = append(r.recentDiag, d)
+	}
+	hook := r.onDiag
+	r.diagMu.Unlock()
+	if hook != nil {
+		hook(d)
+	}
+}
+
+func (r *Recorder) isFullPayloadDiag() bool {
+	r.diagMu.Lock()
+	fn := r.diagFullPayload
+	r.diagMu.Unlock()
+	if fn != nil {
+		return fn()
+	}
+	return DiagnosticFullPayloadEnabled()
 }
 
 // parseSession extracts task id and worker role from session strings like
@@ -135,6 +205,9 @@ func (r *Recorder) Stream(ctx context.Context, req llm.CompletionRequest) iter.S
 		taskID = parsedID
 	}
 
+	diag := BuildRequestDiagnostics(ctx, req, r.model, r.prof, worker, r.isFullPayloadDiag())
+	r.recordDiagnostics(diag)
+
 	// Serialize the request only when storing bodies (this is the expensive part).
 	// Alongside it, attach a Capture so the HTTP transport can hand back the
 	// untouched wire bodies — the normalized view below cannot reconstruct them
@@ -143,7 +216,7 @@ func (r *Recorder) Stream(ctx context.Context, req llm.CompletionRequest) iter.S
 	reqBody := ""
 	var capt *Capture
 	if recordBodies {
-		reqBody = r.serializeRequest(req)
+		reqBody = r.serializeRequest(req, diag)
 		ctx, capt = NewCapture(ctx)
 	}
 
@@ -167,7 +240,7 @@ func (r *Recorder) Stream(ctx context.Context, req llm.CompletionRequest) iter.S
 				status = "error"
 			}
 			// Lightweight metering row — always written.
-			r.recordUsage(taskID, expID, worker, usage, int(time.Since(start).Milliseconds()), status)
+			r.recordUsage(ctx, taskID, expID, worker, usage, int(time.Since(start).Milliseconds()), status)
 			// Heavy trace row — only when body recording is on.
 			if recordBodies {
 				r.record(req, session, taskID, worker, reqBody, capt, start, textBuf.String(), thinkingBuf.String(), usage, stopReason, err)
@@ -233,10 +306,13 @@ func (r *Recorder) Complete(ctx context.Context, req llm.CompletionRequest) (llm
 		taskID = parsedID
 	}
 
+	diag := BuildRequestDiagnostics(ctx, req, r.model, r.prof, worker, r.isFullPayloadDiag())
+	r.recordDiagnostics(diag)
+
 	reqBody := ""
 	var capt *Capture
 	if recordBodies {
-		reqBody = r.serializeRequest(req)
+		reqBody = r.serializeRequest(req, diag)
 		ctx, capt = NewCapture(ctx)
 	}
 
@@ -245,7 +321,7 @@ func (r *Recorder) Complete(ctx context.Context, req llm.CompletionRequest) (llm
 	if err != nil {
 		status = "error"
 	}
-	r.recordUsage(taskID, expID, worker, usage, int(time.Since(start).Milliseconds()), status)
+	r.recordUsage(ctx, taskID, expID, worker, usage, int(time.Since(start).Milliseconds()), status)
 	if recordBodies {
 		r.record(req, session, taskID, worker, reqBody, capt, start, msg.Text(), thinkingText(msg), usage, stopReason, err)
 	}
@@ -264,7 +340,7 @@ func thinkingText(msg llm.Message) string {
 
 // recordUsage appends one lightweight metering row to llm_usage (no bodies). Skips
 // zero-token calls with no model, which carry nothing worth metering.
-func (r *Recorder) recordUsage(taskID string, expID int64, worker string, usage llm.Usage, latencyMs int, status string) {
+func (r *Recorder) recordUsage(ctx context.Context, taskID string, expID int64, worker string, usage llm.Usage, latencyMs int, status string) {
 	if r.pg == nil {
 		return
 	}
@@ -272,18 +348,40 @@ func (r *Recorder) recordUsage(taskID string, expID int64, worker string, usage 
 		usage.CacheReadTokens == 0 && usage.CacheWriteTokens == 0 {
 		return
 	}
+	uncached := usage.InputTokens - usage.CacheReadTokens - usage.CacheWriteTokens
+	if uncached < 0 {
+		uncached = 0
+	}
+	cacheStatus := ""
+	extraJSON := ""
+	if obs := llmcache.CallObserverFromContext(ctx); obs != nil {
+		if obsUsage, ok := obs.Snapshot(); ok {
+			if obsUsage.ProviderUsageReported {
+				uncached = obsUsage.UncachedInputTokens
+			}
+			cacheStatus = string(obsUsage.Presence)
+			if len(obsUsage.Extra) > 0 {
+				if b, mErr := json.Marshal(obsUsage.Extra); mErr == nil {
+					extraJSON = string(b)
+				}
+			}
+		}
+	}
 	err := r.pg.InsertLLMUsage(&db.LLMUsage{
-		TaskID:        taskID,
-		ExplorationID: expID,
-		Worker:        worker,
-		Model:         r.model,
-		ProfileName:   r.prof,
-		LatencyMs:     latencyMs,
-		InputTokens:   usage.InputTokens,
-		OutputTokens:  usage.OutputTokens,
-		CacheRead:     usage.CacheReadTokens,
-		CacheWrite:    usage.CacheWriteTokens,
-		Status:        status,
+		TaskID:            taskID,
+		ExplorationID:     expID,
+		Worker:            worker,
+		Model:             r.model,
+		ProfileName:       r.prof,
+		LatencyMs:         latencyMs,
+		InputTokens:       usage.InputTokens,
+		UncachedInput:     uncached,
+		OutputTokens:      usage.OutputTokens,
+		CacheRead:         usage.CacheReadTokens,
+		CacheWrite:        usage.CacheWriteTokens,
+		CacheMetricStatus: cacheStatus,
+		ExtraUsageJSON:    extraJSON,
+		Status:            status,
 	})
 	if err != nil {
 		log.Printf("[llmusage] insert: %v", err)
@@ -337,12 +435,12 @@ func (r *Recorder) record(req llm.CompletionRequest, session, taskID, worker, re
 		CacheWrite:   usage.CacheWriteTokens,
 		Status:       status,
 		Error:        errMsg,
-		RequestBody:  reqBody,
-		ResponseBody: string(respBody),
+		RequestBody:  RedactSecrets(reqBody),
+		ResponseBody: RedactSecrets(string(respBody)),
 		// Raw wire bodies; empty when the transport did not fill the Capture
 		// (e.g. a provider dialing through a client without the capture hook, or
 		// a call that failed before any HTTP request went out).
-		RawRequest:  capt.RawRequest(),
+		RawRequest:  RedactSecrets(capt.RawRequest()),
 		RawResponse: capt.RawResponse(),
 	}
 
@@ -352,11 +450,12 @@ func (r *Recorder) record(req llm.CompletionRequest, session, taskID, worker, re
 }
 
 // serializeRequest builds a JSON representation of the completion request.
-func (r *Recorder) serializeRequest(req llm.CompletionRequest) string {
+func (r *Recorder) serializeRequest(req llm.CompletionRequest, diag RequestDiagnostics) string {
 	m := map[string]any{
-		"system":     req.System,
-		"messages":   req.Messages,
-		"max_tokens": req.MaxTokens,
+		"system":      req.System,
+		"messages":    req.Messages,
+		"max_tokens":  req.MaxTokens,
+		"diagnostics": diag,
 	}
 	// 记录本次调用实际发出的思考参数。type 采用「有效值」：每请求覆盖 req.Thinking
 	// 优先于配置级 thinkingType(与 norma buildBody 的判定一致，如 compaction 摘要会
@@ -384,5 +483,5 @@ func (r *Recorder) serializeRequest(req llm.CompletionRequest) string {
 		m["stop"] = req.Stop
 	}
 	b, _ := json.Marshal(m)
-	return string(b)
+	return RedactSecrets(string(b))
 }

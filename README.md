@@ -1,35 +1,25 @@
-# ARTEX Global — OAuth CLI и профили HTTP-сессий
-
-Дополнения этого форка:
-
-- **Codex CLI / ChatGPT OAuth**: профили для чата, Planner, Worker и Main Agent без хранения OAuth-токенов в PostgreSQL или браузере. Постоянный thread на сессию, streaming через app-server, восстановление после рестарта и настоящие вызовы инструментов под контролем ARTEX.
-- **Antigravity CLI / Google OAuth через MCP**: Go MCP-мост к инструментам ARTEX, штатные проверки разрешений, постоянные AGY-сессии, отдельная история Worker, streaming и отмена. Поддерживается native Linux AGY **1.4.11+**; собственные команды, файловые и URL-действия AGY запрещены, sandbox включён.
-- **UAForge**: случайный HTTP-профиль на каждую сессию агента с сохранением для восстановления. Явные заголовки пользователя имеют приоритет; Authorization/Cookie защищены при междоменных redirects. Профили применяются к лабораторным HTTP-запросам и curl/wget, а не к LLM API, обновлениям и сторонним MCP. Генерация во время задач не требует сетевых загрузок.
-- **LLM Settings**: выбор API Key / Codex OAuth / Antigravity OAuth, подключение CLI, проверка соединения, модели и назначение профилей агентам.
-
-**Ограничения AGY:** это MCP-провайдер с фиксированными system prompt и историей, а не полная замена LLM API. Для смены инструкций, импорта/переписывания/компрессии истории или восстановления потерянного ожидающего MCP-вызова нужна новая сессия. AGY может быть основным профилем с переходом на API-провайдеры, но не запасным получателем чужой истории. Текстовая эмуляция tool calls, собственный OAuth и blanket auto-approval не используются.
-
-Подключение OAuth, устройство сессий и проверенные ограничения: [docs/CLI_OAUTH.md](docs/CLI_OAUTH.md).
-
-Для UAForge нужен Python с зависимостью из `requirements-uaforge.txt` (версия и SHA-256 закреплены); установка из исходников и Docker включают её установку. При необходимости задайте `ARTEX_UAFORGE_PYTHON`.
-
-Проверены живые Codex/AGY-сессии и MCP-вызовы, отказ Permission Guard, два параллельных Worker, восстановление, streaming, отмена, сборки Go/frontend и локальные HTTP-проверки API Key. Полный тяжёлый тестовый набор не запускался.
-
----
-
 <div align="center">
 
-# ARTEX — Global Edition
+# ✦ ARTEX Global
 
-**An autonomous penetration-testing system driven by LLM multi-agents** (Go backend + Next.js frontend)
+**Multi-agent security assessment with API and CLI OAuth providers**
 
-The UI and generated output default to English, and **can be switched to Korean, Chinese, Spanish or Japanese in Settings (System → Settings → Display language).** Changing the language also changes the language of agent-generated reports, summaries and chat replies.
+[![Issues](https://img.shields.io/github/issues/SkrudjReal/artex-global-oauth-stealth?style=for-the-badge&color=f0abfc&labelColor=19152e)](https://github.com/SkrudjReal/artex-global-oauth-stealth/issues)
+[![Pull requests](https://img.shields.io/github/issues-pr/SkrudjReal/artex-global-oauth-stealth?style=for-the-badge&color=c4b5fd&labelColor=19152e)](https://github.com/SkrudjReal/artex-global-oauth-stealth/pulls)
+[![Stars](https://img.shields.io/github/stars/SkrudjReal/artex-global-oauth-stealth?style=for-the-badge&color=c4b5fd&labelColor=19152e)](https://github.com/SkrudjReal/artex-global-oauth-stealth/stargazers)
+[![Forks](https://img.shields.io/github/forks/SkrudjReal/artex-global-oauth-stealth?style=for-the-badge&color=a5b4fc&labelColor=19152e)](https://github.com/SkrudjReal/artex-global-oauth-stealth/forks)
 
-English · [한국어](README.ko.md) · [中文](README.zh.md) · [Español](README.es.md) · [日本語](README.ja.md)
-
-[![ci](https://github.com/jiwoochris/artex-global/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jiwoochris/artex-global/actions/workflows/ci.yml) [![detections](https://github.com/jiwoochris/artex-global/actions/workflows/detections.yml/badge.svg?branch=main)](https://github.com/jiwoochris/artex-global/actions/workflows/detections.yml) [![web](https://github.com/jiwoochris/artex-global/actions/workflows/web.yml/badge.svg?branch=main)](https://github.com/jiwoochris/artex-global/actions/workflows/web.yml) [![license: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[Quick start](#-quick-start) · [CLI OAuth](docs/CLI_OAUTH.md) · [Bundled MCP](docs/bundled-mcp.md) · [LLM transport](docs/llm-transport.md)
 
 </div>
+
+This fork adds Codex and Antigravity CLI OAuth providers, session HTTP profiles, observed prompt-cache metrics, read-only MCP discovery, and optional bundled CVEIntel/HexStrike setup. Credentials, conversations, target evidence and machine-specific paths are configured locally and are not shipped.
+
+The UI and generated output default to English, with Korean, Chinese, Spanish and Japanese available in Settings. For CLI capabilities and limitations, see [CLI OAuth](docs/CLI_OAUTH.md). UAForge requires the pinned Python dependency in `requirements-uaforge.txt`; installers and Docker prepare it automatically.
+
+The upstream Global Edition documentation continues below. Upstream image and historical release links identify upstream artifacts, not releases built from this fork. Set `ARTEX_IMAGE` to use a different published container image. Binary self-updates use this fork's GitHub releases; they are unavailable until a release is published.
+
+Setup guides: [CLI OAuth](docs/CLI_OAUTH.md) · [Bundled MCP servers](docs/bundled-mcp.md) · [LLM transport compatibility](docs/llm-transport.md).
 
 ---
 

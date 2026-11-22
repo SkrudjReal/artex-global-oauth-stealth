@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/llmcache"
 	"github.com/Autumn-27/artex/traffic"
 )
 
@@ -616,31 +617,55 @@ type LLMProfileDTO struct {
 	// 本配置对重试的覆盖(建连/空响应/同 provider 安全窗口)。每项 attempts:
 	// 0=继承全局策略 | -1=关闭该层重试 | >0=次数；interval_ms: 0=用默认指数退避 |
 	// >0=改用该固定毫秒间隔。全 0 = 完全跟随全局，即历史行为。
-	Retry db.RetryOverride `json:"retry"`
+	Retry                db.RetryOverride      `json:"retry"`
+	SystemInstructions   string                `json:"system_instructions"`
+	InputRatePer1M       *float64              `json:"input_rate_per_1m,omitempty"`
+	CachedInputRatePer1M *float64              `json:"cached_input_rate_per_1m,omitempty"`
+	OutputRatePer1M      *float64              `json:"output_rate_per_1m,omitempty"`
+	PromptCache          llmcache.ProfileStats `json:"prompt_cache"`
+	PromptCacheHitRatio  float64               `json:"prompt_cache_hit_ratio"`
+	PromptCacheCost      llmcache.CostEstimate `json:"prompt_cache_cost"`
 }
 
 func llmProfileDTO(p *db.LLMProfile) LLMProfileDTO {
+	costEst := llmcache.ComputeCost(
+		p.PromptCache.UncachedInputTokens,
+		p.PromptCache.CachedInputTokens,
+		p.PromptCache.OutputTokens,
+		llmcache.Rates{
+			InputRatePer1M:       p.InputRatePer1M,
+			CachedInputRatePer1M: p.CachedInputRatePer1M,
+			OutputRatePer1M:      p.OutputRatePer1M,
+		},
+	)
 	return LLMProfileDTO{
-		ID:               i64s(p.ID),
-		Name:             p.Name,
-		Format:           p.Format,
-		BaseURL:          p.BaseURL,
-		Proxy:            p.Proxy,
-		Model:            p.Model,
-		APIKeyHint:       p.APIKeyHint,
-		RatePerSecond:    p.RatePerSecond,
-		RatePerMinute:    p.RatePerMinute,
-		ContextWindowK:   p.ContextWindowK,
-		ThinkingType:     p.ThinkingType,
-		ReasoningEffort:  p.ReasoningEffort,
-		IsDefault:        p.IsDefault,
-		Priority:         p.Priority,
-		PoolExclude:      p.PoolExclude,
-		Streaming:        p.Streaming,
-		MaxTokens:        p.MaxTokens,
-		MaxTokensField:   p.MaxTokensField,
-		SessionHeaderKey: p.SessionHeaderKey,
-		Retry:            p.Retry,
+		ID:                   i64s(p.ID),
+		Name:                 p.Name,
+		Format:               p.Format,
+		BaseURL:              p.BaseURL,
+		Proxy:                p.Proxy,
+		Model:                p.Model,
+		APIKeyHint:           p.APIKeyHint,
+		RatePerSecond:        p.RatePerSecond,
+		RatePerMinute:        p.RatePerMinute,
+		ContextWindowK:       p.ContextWindowK,
+		ThinkingType:         p.ThinkingType,
+		ReasoningEffort:      p.ReasoningEffort,
+		IsDefault:            p.IsDefault,
+		Priority:             p.Priority,
+		PoolExclude:          p.PoolExclude,
+		Streaming:            p.Streaming,
+		MaxTokens:            p.MaxTokens,
+		MaxTokensField:       p.MaxTokensField,
+		SessionHeaderKey:     p.SessionHeaderKey,
+		Retry:                p.Retry,
+		SystemInstructions:   p.SystemInstructions,
+		InputRatePer1M:       p.InputRatePer1M,
+		CachedInputRatePer1M: p.CachedInputRatePer1M,
+		OutputRatePer1M:      p.OutputRatePer1M,
+		PromptCache:          p.PromptCache,
+		PromptCacheHitRatio:  p.PromptCache.HitRatio(),
+		PromptCacheCost:      costEst,
 	}
 }
 

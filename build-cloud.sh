@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cd "$(cd "$(dirname "$0")" && pwd)"
+bash scripts/setup-mcp.sh
+
 # 1. 프론트엔드(Next.js) 의존성 설치 및 정적 빌드
 echo "[*] Building Frontend..."
 cd web

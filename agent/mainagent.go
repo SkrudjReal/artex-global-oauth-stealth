@@ -3,9 +3,11 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/artex/llmrec"
 	"github.com/Autumn-27/norma/agentcore"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/permission"
@@ -100,9 +102,23 @@ const mainAgentDefaultTmpl = `你是一个授权渗透测试系统的"主 agent"
 
 不要编造发现；只根据工具返回的真实数据回答。`
 
-func mainAgentSystem(goal, dataDir, workDir string) string {
+// mainAgentMCPDelegationSpec is the code-owned MCP routing and delegation policy
+// for MainAgent. Because specialized MCP servers (such as cveintel and hexstrike)
+// are bound to subordinate task agents (worker/planner) rather than mainagent,
+// MainAgent must inspect subordinate MCP metadata via list_mcp_tools and delegate
+// execution to worker via add_intent instead of running Bash workarounds.
+const mainAgentMCPDelegationSpec = "\n\n**MainAgent MCP Routing & Delegation Policy**:\n" +
+	"1. **Subordinate MCP visibility (`callable=false`, `delegatable_to`)**: In ARTEX tasks, specialized MCP servers (such as `cveintel` / CVEIntel MCP and `hexstrike` / HexStrike MCP) are bound to subordinate task roles (`worker`, `planner`, `retester`), not to `mainagent` directly. Calling `list_mcp_tools` from `mainagent` shows these subordinate MCP servers with `callable=false` and `delegatable_to=[\"worker\", ...]`. Never interpret `direct_server_count=0`, `callable=false`, or an empty `SearchExtraTools` result on `mainagent` as \"no MCP servers are registered in ARTEX\".\n" +
+	"2. **Delegate CVE analysis and MCP tasks to `worker`**: When asked to perform CVE analysis / vulnerability intelligence lookups (NVD, OSV, GitHub Advisories, CISA KEV via `cveintel`) or safe version/target verification (via `hexstrike`), gather the known technology/version inventory from the task graph (`graph_overview`, `list_assets`, `list_facts`, `list_findings`, `node_detail`), inspect MCP metadata via `list_mcp_tools`, and **delegate the MCP execution to `worker` via `add_intent`** (priority 9–10) with a clear summary of the technologies/versions and the MCP tools to use.\n" +
+	"3. **Retrieve Worker results and never use `Bash` wrappers**: After dispatching the intent via `add_intent`, call `get_worker_output` (with `wait=true` when waiting for completion) and/or `list_facts` / `list_findings` / `node_detail` to read the Worker's MCP results and present the final report. Never use `Bash` in `mainagent` to search the filesystem for MCP scripts (`cve_intel_mcp.py`, etc.) or write Python/shell MCP wrapper scripts."
+
+func mainAgentStaticSystem(goal, dataDir string) string {
 	body := renderSystem("mainagent", mainAgentDefaultTmpl, MainVars{Goal: goal, DataDir: dataDir, Now: nowStr()})
-	return body + artifactSpec(workDir) + langDirective(resolveOutputLang())
+	return body + mainAgentMCPDelegationSpec + mcpToolEfficiencyPolicy() + langDirective(resolveOutputLang())
+}
+
+func mainAgentSystem(goal, dataDir, workDir string) string {
+	return mainAgentStaticSystem(goal, dataDir) + artifactSpec(workDir)
 }
 
 // Chat handles one human message and returns the assistant reply. emit, if
@@ -126,12 +142,17 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 	// 资产覆盖度功能关闭时剔除 add_task_scope/list_untested_assets（不入 prompt）。
 	base := append(tsx.DropCoverageTools(tsx.MainAgentTools()), actool.DefaultTools()...)
 	ctx = WithRunInfo(ctx, RunInfo{TaskID: taskID, ExplorationID: explorationID(ts)})
+	ctx = llmrec.WithWorker(ctx, "mainagent")
+	if taskID > 0 {
+		ctx = llmrec.WithTaskID(ctx, strconv.FormatInt(taskID, 10))
+	}
 	tools, def, cleanup := AugmentTools(ctx, "mainagent", base)
 	defer cleanup()
 	// 本任务的工作目录 <workDir>/tasks/<taskID>，先建好。
 	mainDir := ensureRunDir(m.workDir, taskID, 0)
 	ctx = intercept.WithReviewWorkingDirectory(ctx, mainDir)
-	system, boundary := deferredSystem(mainAgentSystem(goal, m.workDir, mainDir), def)
+	system, boundary := deferredSystem(mainAgentStaticSystem(goal, m.workDir), def)
+	system = append(system, artifactSpec(mainDir))
 	opts := agentcore.Options{
 		Provider:        m.prov,
 		SystemPrompt:    system,

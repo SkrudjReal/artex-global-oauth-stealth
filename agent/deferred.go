@@ -21,6 +21,7 @@ func deferredSystem(sysText string, def DeferredInfo) (system []string, boundary
 	if block == "" {
 		return []string{sysText}, 0
 	}
+	block += "\nMCP Direct Execution Rule: When a deferred MCP tool listed above (e.g. mcp__cveintel__* or mcp__hexstrike__*) covers your task or intent, invoke it directly by first loading its schema via SearchExtraTools({\"query\":\"select:<exact_tool_name>\"}) and then calling ExecuteExtraTool({\"tool_name\":\"<exact_tool_name>\",\"params\":{...}}). Do NOT write Bash or Python wrapper scripts to invoke MCP servers."
 	system = []string{sysText, block}
 	boundary = len(system) // b >= len → whole system prompt cached (SDK guard)
 	return system, boundary

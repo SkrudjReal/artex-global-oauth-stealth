@@ -27,12 +27,13 @@ import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
-import type { LLMPoolMember, LLMPoolStatus, LLMProfile, LLMRetryOverride } from "@/lib/types";
+import type { LLMPoolMember, LLMPoolStatus, LLMProfile, LLMRetryOverride, PromptCacheStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { OAuthCLIProfile } from "./_components/oauth-cli";
-
+import { PromptCacheCardBadge, PromptCacheSection } from "./_components/prompt-cache";
 import { ProfileRetryFields, RetryPolicyPanel, ZERO_OVERRIDE } from "./_components/retry";
 
 // 思考开关(thinking.type)与思考强度(reasoning_effort)是两个【互相独立】的字段，
@@ -126,7 +127,12 @@ function PoolSheet({
         </SheetHeader>
 
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-6">
- {hasExternal && <p className="rounded border p-3 text-sm">OAuth CLI profiles run only as External Agents. They cannot activate the normal chat, Planner/Worker, or API Key rotation. Open the profile and choose Run External Agent.</p>}
+          {hasExternal && (
+            <p className="rounded border p-3 text-sm">
+              OAuth CLI profiles run only as External Agents. They cannot activate the normal chat, Planner/Worker, or
+              API Key rotation. Open the profile and choose Run External Agent.
+            </p>
+          )}
           <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
             <div className="grid gap-0.5">
               <Label className="text-sm">{t("pool.enable.label")}</Label>
@@ -251,16 +257,26 @@ function PoolSheet({
 // 模型配置抽屉（新建 / 编辑共用同一套表单）
 // ─────────────────────────────────────────────────────────────────────────────
 
+function parseOptionalRate(v: string): number | null {
+  const s = v.trim();
+  if (!s) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
 function ProfileSheet({
   profile,
   open,
   onOpenChange,
   onSaved,
+  onCacheReset,
 }: {
   profile: LLMProfile | null; // null = 新建
   open: boolean;
   onOpenChange: (o: boolean) => void;
   onSaved: (id: string) => void;
+  onCacheReset: () => void;
 }) {
   const t = useTranslations("llmPage");
   const isNew = !profile;
@@ -282,6 +298,11 @@ function ProfileSheet({
   const [maxTokens, setMaxTokens] = React.useState("0"); // 单次回复输出上限;0=不发送
   const [maxTokensField, setMaxTokensField] = React.useState(NONE); // 上限用哪个字段名;NONE=max_tokens
   const [sessionHeaderKey, setSessionHeaderKey] = React.useState(""); // 自定义会话头名;空=不发送
+  const [systemInstructions, setSystemInstructions] = React.useState("");
+  const [inputRate, setInputRate] = React.useState("");
+  const [cachedRate, setCachedRate] = React.useState("");
+  const [outputRate, setOutputRate] = React.useState("");
+  const [cacheSnapshot, setCacheSnapshot] = React.useState<LLMProfile | null>(null);
   const [retry, setRetry] = React.useState<LLMRetryOverride>(ZERO_OVERRIDE); // 本配置的重试覆盖;全 0=跟随全局
   const [testing, setTesting] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -328,6 +349,11 @@ function ProfileSheet({
     setMaxTokens(String(profile?.max_tokens ?? 0));
     setMaxTokensField(fromStore(profile?.max_tokens_field));
     setSessionHeaderKey(profile?.session_header_key ?? "");
+    setSystemInstructions(profile?.system_instructions ?? "");
+    setInputRate(profile?.input_rate_per_1m != null ? String(profile.input_rate_per_1m) : "");
+    setCachedRate(profile?.cached_input_rate_per_1m != null ? String(profile.cached_input_rate_per_1m) : "");
+    setOutputRate(profile?.output_rate_per_1m != null ? String(profile.output_rate_per_1m) : "");
+    setCacheSnapshot(profile);
     setRetry(profile?.retry ?? ZERO_OVERRIDE);
     setApiKey("");
     setKeyHint(profile?.api_key_hint ?? "");
@@ -417,6 +443,10 @@ function ProfileSheet({
         // 后端也会再做一次同样的归一化，这里只是别让 UI 送出自相矛盾的值。
         max_tokens_field: format === "openai" ? toStore(maxTokensField) : "",
         session_header_key: sessionHeaderKey.trim(),
+        system_instructions: systemInstructions,
+        input_rate_per_1m: parseOptionalRate(inputRate),
+        cached_input_rate_per_1m: parseOptionalRate(cachedRate),
+        output_rate_per_1m: parseOptionalRate(outputRate),
         retry,
       });
       if (isNew) toast.success(t("profile.toast.created", { name: name.trim() }));
@@ -430,11 +460,21 @@ function ProfileSheet({
     }
   }
 
-  if (format === "codex-oauth" || format === "agy-oauth") return (
-    <Sheet open={open} onOpenChange={onOpenChange}><SheetContent className="flex flex-col gap-4 p-0 data-[side=right]:sm:max-w-lg">
-      <OAuthCLIProfile key={`${profile?.id??"new"}-${format}`} profile={profile} kind={format} onKindChange={setFormat} onSaved={onSaved} onClose={()=>onOpenChange(false)}/>
-    </SheetContent></Sheet>
-  );
+  if (format === "codex-oauth" || format === "agy-oauth")
+    return (
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent className="flex flex-col gap-4 p-0 data-[side=right]:sm:max-w-lg">
+          <OAuthCLIProfile
+            key={`${profile?.id ?? "new"}-${format}`}
+            profile={profile}
+            kind={format}
+            onKindChange={setFormat}
+            onSaved={onSaved}
+            onClose={() => onOpenChange(false)}
+          />
+        </SheetContent>
+      </Sheet>
+    );
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -475,8 +515,8 @@ function ProfileSheet({
                   <SelectItem value="anthropic">Anthropic</SelectItem>
                   <SelectItem value="openai">OpenAI (Chat Completions)</SelectItem>
                   <SelectItem value="openai-responses">OpenAI (Responses API)</SelectItem>
-<SelectItem value="codex-oauth">Codex CLI (ChatGPT OAuth)</SelectItem>
-<SelectItem value="agy-oauth">Antigravity CLI / agy (Google OAuth)</SelectItem>
+                  <SelectItem value="codex-oauth">Codex CLI (ChatGPT OAuth)</SelectItem>
+                  <SelectItem value="agy-oauth">Antigravity CLI / agy (Google OAuth)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -714,6 +754,44 @@ function ProfileSheet({
             </div>
           </div>
 
+          <div className="grid gap-2 rounded-lg border p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="grid gap-0.5">
+                <Label htmlFor="p-sys-inst" className="text-sm">
+                  {t("profile.systemInstructions.label")}
+                </Label>
+                <p className="text-muted-foreground text-xs">{t("profile.systemInstructions.hint")}</p>
+              </div>
+              {systemInstructions.length > 0 && (
+                <Button type="button" size="sm" variant="ghost" onClick={() => setSystemInstructions("")}>
+                  {t("profile.systemInstructions.clear")}
+                </Button>
+              )}
+            </div>
+            <Textarea
+              id="p-sys-inst"
+              rows={4}
+              placeholder={t("profile.systemInstructions.placeholder")}
+              value={systemInstructions}
+              onChange={(e) => setSystemInstructions(e.target.value)}
+            />
+          </div>
+
+          <PromptCacheSection
+            profile={cacheSnapshot}
+            inputRate={inputRate}
+            cachedRate={cachedRate}
+            outputRate={outputRate}
+            onInputRateChange={setInputRate}
+            onCachedRateChange={setCachedRate}
+            onOutputRateChange={setOutputRate}
+            onResetStats={(fresh: PromptCacheStats) => {
+              setCacheSnapshot((prev) => (prev ? { ...prev, prompt_cache: fresh, prompt_cache_hit_ratio: 0 } : prev));
+              toast.success(t("promptCache.resetToast"));
+              onCacheReset();
+            }}
+          />
+
           <ProfileRetryFields value={retry} onChange={setRetry} />
         </div>
 
@@ -752,8 +830,7 @@ export default function LLMPage() {
   // 一个配置在卡片上显示的「是否正常」。没填 Key 的配置根本发不出请求，比熔断更该先说。
   const healthOf = React.useCallback(
     (p: LLMProfile, m?: LLMPoolMember): Health => {
-
- if (!p.api_key_hint && p.format !== "codex-oauth" && p.format !== "agy-oauth") {
+      if (!p.api_key_hint && p.format !== "codex-oauth" && p.format !== "agy-oauth") {
         return {
           label: t("health.noKey.label"),
           cls: "border-muted-foreground/40 text-muted-foreground",
@@ -913,6 +990,12 @@ export default function LLMPage() {
                       <span>
                         {p.rate_per_second}/s · {p.rate_per_minute}/min
                       </span>
+                      {p.system_instructions?.trim() && (
+                        <Badge variant="outline" className="font-normal text-[11px]">
+                          {t("card.systemInstructionsBadge")}
+                        </Badge>
+                      )}
+                      <PromptCacheCardBadge profile={p} />
                       {p.proxy && <span className="truncate">{t("card.proxy", { proxy: p.proxy })}</span>}
                       {p.reasoning_effort && (
                         <span>
@@ -923,7 +1006,6 @@ export default function LLMPage() {
                       )}
                       {/* 轮询相关的两个字段只在轮询开着时才有意义，关着时不占版面 */}
                       {poolOn &&
-
                         !p.is_default &&
                         (p.pool_exclude ? (
                           <span>{t("card.excluded")}</span>
@@ -932,8 +1014,7 @@ export default function LLMPage() {
                         ))}
                     </div>
 
-
- <div className="mt-1 flex gap-2">
+                    <div className="mt-1 flex gap-2">
                       <Button
                         size="sm"
                         variant="outline"
@@ -975,7 +1056,13 @@ export default function LLMPage() {
         </TabsContent>
       </Tabs>
 
-      <ProfileSheet profile={editing} open={editOpen} onOpenChange={setEditOpen} onSaved={() => void load()} />
+      <ProfileSheet
+        profile={editing}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        onSaved={() => void load()}
+        onCacheReset={() => void load()}
+      />
       <PoolSheet hasExternal={false} open={poolOpen} onOpenChange={setPoolOpen} pool={pool} onReload={loadPool} />
     </div>
   );

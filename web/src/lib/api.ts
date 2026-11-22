@@ -35,6 +35,7 @@ import type {
   EvidenceBodyPreview,
   ExplorationNodePage,
   ExplorationNodeQuery,
+  ExternalCLIEvent,
   Finding,
   FindingAssetTree,
   FindingDeepenResponse,
@@ -56,9 +57,6 @@ import type {
   JudgeUsage,
   LLMPoolStatus,
   LLMProfile,
-  OAuthCLIKind,
-  OAuthCLIStatus,
-  ExternalCLIEvent,
   LLMRecordDetail,
   LLMRecordItem,
   LLMRetryOverride,
@@ -72,6 +70,9 @@ import type {
   NotificationDelivery,
   NotificationFilter,
   NotificationMeta,
+  OAuthCLIKind,
+  OAuthCLIStatus,
+  PromptCacheStats,
   PromptVar,
   PromptVersion,
   SessionTokenUsage,
@@ -977,37 +978,56 @@ export const api = {
     }),
   oauthCLIStatus: (kind: OAuthCLIKind) => get<OAuthCLIStatus>(`/llm/oauth/${kind}`),
   connectOAuthCLI: (kind: OAuthCLIKind) => post<OAuthCLIStatus>(`/llm/oauth/${kind}/connect`, {}),
-  disconnectOAuthCLI: (kind: OAuthCLIKind) => post<{ok: boolean}>(`/llm/oauth/${kind}/disconnect`, {}),
-  streamExternalCLI: async (profile: string, request: {task_id: string; role: "external"; session_id: string; prompt: string}, signal: AbortSignal, emit: (event: ExternalCLIEvent) => void) => {
+  disconnectOAuthCLI: (kind: OAuthCLIKind) => post<{ ok: boolean }>(`/llm/oauth/${kind}/disconnect`, {}),
+  streamExternalCLI: async (
+    profile: string,
+    request: { task_id: string; role: "external"; session_id: string; prompt: string },
+    signal: AbortSignal,
+    emit: (event: ExternalCLIEvent) => void,
+  ) => {
     const token = getToken();
     const response = await fetch(sseUrl(`/api/llm/profiles/${encodeURIComponent(profile)}/external/stream`), {
-      method: "POST", signal,
-      headers: {"Content-Type":"application/json", ...(token ? {Authorization: `Bearer ${token}`} : {})},
+      method: "POST",
+      signal,
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(request),
     });
-    if (!response.ok) { const error = await response.json(); throw new Error(error.error || `HTTP ${response.status}`); }
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || `HTTP ${response.status}`);
+    }
     if (!response.body) throw new Error("Streaming response unavailable");
-    const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ""; let terminal = false;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let terminal = false;
     try {
       for (;;) {
-        const {done, value} = await reader.read();
-        buffer += decoder.decode(value, {stream: !done});
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
         let boundary: number;
         while ((boundary = buffer.indexOf("\n\n")) >= 0) {
-          const frame = buffer.slice(0, boundary); buffer = buffer.slice(boundary+2);
-          for (const line of frame.split("\n")) if (line.startsWith("data: ")) {
-            const event = JSON.parse(line.slice(6)) as ExternalCLIEvent;
-            emit(event); if (event.type === "error") throw new Error(event.status || "External agent failed");
-            if (event.type === "result") terminal = true;
-          }
+          const frame = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          for (const line of frame.split("\n"))
+            if (line.startsWith("data: ")) {
+              const event = JSON.parse(line.slice(6)) as ExternalCLIEvent;
+              emit(event);
+              if (event.type === "error") throw new Error(event.status || "External agent failed");
+              if (event.type === "result") terminal = true;
+            }
         }
         if (done) break;
-        if (buffer.length > 4*1024*1024) throw new Error("CLI event exceeded size limit");
+        if (buffer.length > 4 * 1024 * 1024) throw new Error("CLI event exceeded size limit");
       }
       if (!terminal) throw new Error("CLI stream closed before completion");
-    } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+    } finally {
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
   },
-  llmProfiles: (_includeExternal = false) => get<{ profiles: LLMProfile[] }>("/llm/profiles").then((r) => arr(r.profiles)),
+  llmProfiles: (_includeExternal = false) =>
+    get<{ profiles: LLMProfile[] }>("/llm/profiles").then((r) => arr(r.profiles)),
   saveLLMProfile: (p: {
     id?: number; // omit/0 = create; set = update that profile
     name: string;
@@ -1028,9 +1048,14 @@ export const api = {
     max_tokens_field?: string; // ""=max_tokens(默认) | "max_completion_tokens"（仅 openai 格式）
     session_header_key?: string; // 非空=每次请求带该 HTTP 头，头值=当前会话 session id；""=不发送
     retry?: LLMRetryOverride; // 本配置的重试覆盖；各项留 0 = 跟随全局重试策略
+    system_instructions?: string;
+    input_rate_per_1m?: number | null;
+    cached_input_rate_per_1m?: number | null;
+    output_rate_per_1m?: number | null;
   }) => post<{ id: number }>("/llm/profiles", p),
   deleteLLMProfile: (id: string) => del<{ deleted: number }>(`/llm/profiles/${id}`),
   activateLLMProfile: (id: string) => post<{ ok: boolean }>("/llm/profiles/active", { id: Number(id) }),
+  resetLLMProfileCache: (id: string) => post<{ prompt_cache: PromptCacheStats }>(`/llm/profiles/${id}/cache-reset`, {}),
   // 轮询链的实际顺序 + 各配置的熔断状态。
   llmPool: () => get<LLMPoolStatus>("/llm/pool"),
   // 清除熔断，让下一次调用立刻重试该配置；不传 id = 全部清除。

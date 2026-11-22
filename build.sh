@@ -18,6 +18,8 @@
 #   ARTEX_SKIP_FRONTEND=1             Reuse server/webui/dist (for CI artifact builds).
 #   ARTEX_SKIP_NPM_CI=1               Skip npm ci while rebuilding the frontend.
 #   ARTEX_GOSUMDB=sum.golang.org      Go checksum database.
+#   ARTEX_INSTALL_HEXSTRIKE=yes|no    Optional HexStrike setup (otherwise asks on a terminal).
+#   ARTEX_SETUP_MCP=0                 Skip local MCP dependency setup (offline/CI).
 set -euo pipefail
 
 cd "$(cd "$(dirname "$0")" && pwd)"
@@ -88,6 +90,8 @@ while [ "$#" -gt 0 ]; do
 done
 
 command -v go >/dev/null 2>&1 || die "Go 를 찾을 수 없습니다(이 프로젝트는 Go 1.26 이상이 필요합니다)"
+
+bash scripts/setup-mcp.sh
 
 ARTEX_GOSUMDB="${ARTEX_GOSUMDB:-sum.golang.org}"
 if [ -z "${ARTEX_BUILD_VERSION:-}" ]; then
@@ -182,6 +186,11 @@ package_binary() {
     chmod +x "$package_root/start.sh"
   fi
   cp -R skills "$package_root/"
+  mkdir -p "$package_root/scripts" "$package_root/cve-intel-mcp"
+  cp scripts/setup-mcp.sh scripts/setup-mcp.py scripts/hexstrike-mcp.py "$package_root/scripts/"
+  cp cve-intel-mcp/cve_intel_mcp.py cve-intel-mcp/requirements.txt "$package_root/cve-intel-mcp/"
+  mkdir -p "$package_root/docs"
+  cp docs/bundled-mcp.md "$package_root/docs/"
   cp config.example.json "$package_root/"
   if [ -f README.md ]; then cp README.md "$package_root/"; fi
   (cd "$ARTEX_PACKAGE_DIR" && zip -q -r -9 "$(basename "$archive")" "$(basename "$package_root")")

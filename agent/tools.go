@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Autumn-27/artex/db"
 	acperm "github.com/Autumn-27/norma/permission"
@@ -1738,11 +1739,17 @@ func (t *ToolSet) steerWorkTool() actool.CoreTool {
 
 // getWorkerOutput returns a work's final (or截至中止时的) conclusion text by intent id.
 func (t *ToolSet) getWorkerOutput() actool.CoreTool {
-	return t.readExpTool("get_worker_output", "取本任务或直接关联任务某条意图(work)的最终输出结论。关联任务结果带 source_task_id/inherited=true 且只读。正常结束返回其总结；被终止(stopped)/异常的 work 返回其截至中止时的最后输出。",
-		obj(map[string]any{"intent_id": idp("意图 id（= work 句柄）")}, "intent_id"),
-		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
+	return t.readExpTool("get_worker_output", "取本任务或直接关联任务某条意图(work)的最终输出结论。关联任务结果带 source_task_id/inherited=true 且只读。正常结束返回其总结；被终止(stopped)/异常的 work 返回其截至中止时的最后输出。可选 wait=true 等待一条 open/running 的意图执行完毕后再返回结果。",
+		obj(map[string]any{
+			"intent_id":    idp("意图 id（= work 句柄）"),
+			"wait":         map[string]any{"type": "boolean", "default": false, "description": "可选：若意图仍在 open/running，等待 worker 执行完成后再返回最终结论"},
+			"wait_seconds": intp("可选：wait=true 时的最大等待秒数（默认 120，上限 600）"),
+		}, "intent_id"),
+		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 			var a struct {
-				IntentID json.RawMessage `json:"intent_id"`
+				IntentID    json.RawMessage `json:"intent_id"`
+				Wait        bool            `json:"wait"`
+				WaitSeconds int             `json:"wait_seconds"`
 			}
 			_ = json.Unmarshal(in, &a)
 			id := pid(a.IntentID)
@@ -1759,6 +1766,37 @@ func (t *ToolSet) getWorkerOutput() actool.CoreTool {
 			acts, _, err := t.ts.ActivityListWithSources(id, 0, 1000)
 			if err != nil {
 				return actool.Errorf(err.Error()), nil
+			}
+			// Wait for completion when explicitly requested (wait=true) or when
+			// MainAgent (caller="human") queries a newly dispatched open/running
+			// intent that has not emitted any output yet.
+			shouldWait := a.Wait || (t.worker == "human" && len(acts) == 0 && (intentNode.State == "open" || intentNode.State == "running"))
+			if shouldWait && (intentNode.State == "open" || intentNode.State == "running") {
+				waitSec := a.WaitSeconds
+				if waitSec <= 0 {
+					waitSec = 120
+				}
+				if waitSec > 600 {
+					waitSec = 600
+				}
+				deadline := time.Now().Add(time.Duration(waitSec) * time.Second)
+				for time.Now().Before(deadline) {
+					if ctx != nil && ctx.Err() != nil {
+						break
+					}
+					cur, nerr := t.ts.GetNodeWithSources(id)
+					if nerr == nil && cur != nil {
+						intentNode = cur
+						if cur.State != "open" && cur.State != "running" {
+							break
+						}
+					}
+					time.Sleep(50 * time.Millisecond)
+				}
+				acts, _, err = t.ts.ActivityListWithSources(id, 0, 1000)
+				if err != nil {
+					return actool.Errorf(err.Error()), nil
+				}
 			}
 			var chosen, fallback *db.Activity
 			for i := range acts {
@@ -1787,8 +1825,16 @@ func (t *ToolSet) getWorkerOutput() actool.CoreTool {
 				detail = pick.Summary
 			}
 			result := map[string]any{
-				"intent_id": id, "final_text": detail,
-				"summary": pick.Summary, "is_error": pick.IsError,
+				"intent_id":  id,
+				"state":      intentNode.State,
+				"final_text": detail,
+				"summary":    pick.Summary,
+				"is_error":   pick.IsError,
+			}
+			if !intentNode.Inherited {
+				if factIDs, ferr := t.ts.FactsYielded(id); ferr == nil && len(factIDs) > 0 {
+					result["fact_ids"] = factIDs
+				}
 			}
 			if intentNode.Inherited {
 				inheritedMap(result, intentNode.SourceTaskID)

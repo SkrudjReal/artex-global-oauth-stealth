@@ -13,35 +13,44 @@ import (
 // only the dimensions needed to slice token spend (model / profile / task / agent),
 // never any prompt or response content.
 type LLMUsage struct {
-	TaskID        string `json:"task_id"`        // task registry id (matches llm_records.task_id)
-	ExplorationID int64  `json:"exploration_id"` // exploration id parsed from the session (0 = unknown/non-task)
-	Worker        string `json:"worker"`         // agent lane: worker / planner / mainagent / goals
-	Model         string `json:"model"`
-	ProfileName   string `json:"profile_name"`
-	LatencyMs     int    `json:"latency_ms"`
-	InputTokens   int    `json:"input_tokens"`
-	OutputTokens  int    `json:"output_tokens"`
-	CacheRead     int    `json:"cache_read"`
-	CacheWrite    int    `json:"cache_write"`
-	Status        string `json:"status"` // ok | error
+	TaskID            string `json:"task_id"`        // task registry id (matches llm_records.task_id)
+	ExplorationID     int64  `json:"exploration_id"` // exploration id parsed from the session (0 = unknown/non-task)
+	Worker            string `json:"worker"`         // agent lane: worker / planner / mainagent / goals
+	Model             string `json:"model"`
+	ProfileName       string `json:"profile_name"`
+	LatencyMs         int    `json:"latency_ms"`
+	InputTokens       int    `json:"input_tokens"`
+	UncachedInput     int    `json:"uncached_input_tokens"`
+	OutputTokens      int    `json:"output_tokens"`
+	CacheRead         int    `json:"cache_read"`
+	CacheWrite        int    `json:"cache_write"`
+	CacheMetricStatus string `json:"cache_metric_status,omitempty"`
+	ExtraUsageJSON    string `json:"extra_usage_json,omitempty"`
+	Status            string `json:"status"` // ok | error
 }
 
 const llmUsageSchema = `
 CREATE TABLE IF NOT EXISTS llm_usage (
-    id             BIGSERIAL PRIMARY KEY,
-    ts             TIMESTAMPTZ NOT NULL DEFAULT now(),
-    task_id        TEXT,
-    exploration_id BIGINT,
-    worker         TEXT,
-    model          TEXT,
-    profile_name   TEXT,
-    latency_ms     INTEGER,
-    input_tokens   INTEGER NOT NULL DEFAULT 0,
-    output_tokens  INTEGER NOT NULL DEFAULT 0,
-    cache_read     INTEGER NOT NULL DEFAULT 0,
-    cache_write    INTEGER NOT NULL DEFAULT 0,
-    status         TEXT
+    id                    BIGSERIAL PRIMARY KEY,
+    ts                    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    task_id               TEXT,
+    exploration_id        BIGINT,
+    worker                TEXT,
+    model                 TEXT,
+    profile_name          TEXT,
+    latency_ms            INTEGER,
+    input_tokens          INTEGER NOT NULL DEFAULT 0,
+    uncached_input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens         INTEGER NOT NULL DEFAULT 0,
+    cache_read            INTEGER NOT NULL DEFAULT 0,
+    cache_write           INTEGER NOT NULL DEFAULT 0,
+    cache_metric_status   TEXT NOT NULL DEFAULT '',
+    extra_usage           JSONB NOT NULL DEFAULT '{}',
+    status                TEXT
 );
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS uncached_input_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS cache_metric_status TEXT NOT NULL DEFAULT '';
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS extra_usage JSONB NOT NULL DEFAULT '{}';
 CREATE INDEX IF NOT EXISTS idx_llm_usage_task  ON llm_usage(task_id);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_model ON llm_usage(task_id, model);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_exp   ON llm_usage(exploration_id);
@@ -70,11 +79,16 @@ func (d *DB) InsertLLMUsage(u *LLMUsage) error {
 	if u.ExplorationID > 0 {
 		expID = u.ExplorationID
 	}
+	extraJSON := u.ExtraUsageJSON
+	if extraJSON == "" {
+		extraJSON = "{}"
+	}
 	_, err := d.Exec(`
-INSERT INTO llm_usage(task_id, exploration_id, worker, model, profile_name, latency_ms, input_tokens, output_tokens, cache_read, cache_write, status)
-VALUES (NULLIF($1,''),$2,NULLIF($3,''),NULLIF($4,''),NULLIF($5,''),$6,$7,$8,$9,$10,$11)`,
+INSERT INTO llm_usage(task_id, exploration_id, worker, model, profile_name, latency_ms, input_tokens, uncached_input_tokens, output_tokens, cache_read, cache_write, cache_metric_status, extra_usage, status)
+VALUES (NULLIF($1,''),$2,NULLIF($3,''),NULLIF($4,''),NULLIF($5,''),$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14)`,
 		u.TaskID, expID, u.Worker, u.Model, u.ProfileName,
-		u.LatencyMs, u.InputTokens, u.OutputTokens, u.CacheRead, u.CacheWrite, u.Status)
+		u.LatencyMs, u.InputTokens, u.UncachedInput, u.OutputTokens, u.CacheRead, u.CacheWrite,
+		u.CacheMetricStatus, extraJSON, u.Status)
 	return err
 }
 

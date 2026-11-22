@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Autumn-27/artex/agent"
@@ -68,6 +69,7 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 		// deferred until that skill is invoked (regardless of direct visibility).
 		var closers []io.Closer
 		serverTools := map[string][]string{} // server name → its tool names
+		liveCache := newMCPLiveSessionCache()
 		var allNames, globalNames []string
 		globalSet := map[string]bool{}
 		{
@@ -94,6 +96,7 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 					log.Printf("[mcp] %s tools/list 失败: %v", m.Name, err)
 					continue
 				}
+				liveCache.put(m.Name, toDBMCPTools(ts))
 				for _, t := range ts {
 					extra = append(extra, t)
 					allNames = append(allNames, t.Name())
@@ -151,7 +154,13 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 		if hostTools != nil {
 			ht, deferredBinds := hostTools()
 			extra = append(extra, ht...)
-			for name, boundAgents := range deferredBinds {
+			deferredKeys := make([]string, 0, len(deferredBinds))
+			for name := range deferredBinds {
+				deferredKeys = append(deferredKeys, name)
+			}
+			sort.Strings(deferredKeys)
+			for _, name := range deferredKeys {
+				boundAgents := deferredBinds[name]
 				if !contains(boundAgents, a.Key) {
 					continue // only defer names this agent is actually bound to
 				}
@@ -163,6 +172,12 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 				}
 			}
 		}
+		sort.Strings(allNames)
+		sort.Strings(globalNames)
+
+		// Native read-only MCP metadata tool, sharing this turn's live session cache
+		// so live=true never re-connects to an MCP server already dialed above.
+		extra = append(extra, newListMCPToolsTool(pg, skillDir, a.Key, liveCache))
 
 		cleanup := func() {
 			for _, c := range closers {
@@ -232,6 +247,7 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 			log.Printf("[tools] seed %s 失败: %v", t.Name(), err)
 		}
 	}
+	seedListMCPTools(pg)
 	// bashInteractiveShellNote is appended to Bash's description ONLY for agents whose
 	// interactive_shell is on, so Bash points at shell_open for interactive programs
 	// without ever referencing a tool that isn't injected (§14.1/§14.2).
@@ -254,8 +270,13 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 			}
 			return meterTool(agent.DecorateTool(t, row.Description, schema), pg, row.Key, agentKey, runInfo)
 		}
+		inList := make(map[string]bool, len(tools))
 		out := tools[:0:0]
 		for _, t := range tools {
+			inList[t.Name()] = true
+			if lt, ok := t.(*listMCPToolsTool); ok {
+				t = lt.withCallerAgent(agentKey)
+			}
 			row, known := byKey[t.Name()]
 			if !known { // MCP/skill/host tool: no row → untouched
 				out = append(out, t)
@@ -266,16 +287,18 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 			}
 			out = append(out, resolve(t, row))
 		}
+		if !inList[toolKeyListMCPTools] {
+			if row, ok := byKey[toolKeyListMCPTools]; ok && row.Enabled && contains(row.Agents, agentKey) {
+				out = append(out, resolve(newListMCPToolsTool(pg, "", agentKey, nil), row))
+				inList[toolKeyListMCPTools] = true
+			}
+		}
 		// inject: domain tools bound to this agent in the DB but absent from the
 		// incoming list. Covers agents (Auto, custom) whose base only has DefaultTools
 		// and therefore never includes ToolSet-backed domain tools. Per-task instances
 		// in the base always win: inList is built from the original incoming list so a
 		// worker's own upsert_asset is never shadowed by the server-level registry copy.
 		if len(domainReg) > 0 {
-			inList := make(map[string]bool, len(tools))
-			for _, t := range tools {
-				inList[t.Name()] = true
-			}
 			for _, row := range rows {
 				if row.Kind == "shell" || !row.Enabled || !contains(row.Agents, agentKey) || inList[row.Key] {
 					continue

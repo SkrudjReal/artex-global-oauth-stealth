@@ -3259,7 +3259,8 @@
       "priority": "优先级 {priority}",
       "active": "已激活",
       "activate": "设为激活",
-      "deleteAria": "删除配置"
+      "deleteAria": "删除配置",
+      "systemInstructionsBadge": "自定义指令"
     },
     "health": {
       "noKey": {
@@ -3413,6 +3414,12 @@
         "savedActive": "已保存，激活配置即时生效，无需重启",
         "saved": "已保存",
         "saveFailed": "保存失败：{msg}"
+      },
+      "systemInstructions": {
+        "label": "System Instructions",
+        "hint": "追加在 ARTEX 角色提示词之前的模型专属指令，按配置独立保存，默认为空。",
+        "placeholder": "输入仅针对此 LLM 配置的可选系统指令...",
+        "clear": "清空"
       }
     },
     "retryLayer": {
@@ -3487,6 +3494,47 @@
         "loadFailed": "读取重试策略失败：{msg}",
         "saved": "已保存，即时生效（正在跑的这一轮调用仍用旧参数）",
         "saveFailed": "保存失败：{msg}"
+      }
+    },
+    "promptCache": {
+      "title": "Prompt Caching",
+      "subtitle": "此配置的实际 API 缓存观测状态、命中统计与可选单价配置。",
+      "reset": "重置统计",
+      "resetTitle": "仅清空缓存统计，保留模型配置与指令",
+      "resetToast": "已重置 Prompt Cache 统计",
+      "cardTooltip": "策略: {strategy} · 命中: {cached} · 未命中输入: {uncached}",
+      "strategyLabel": "策略",
+      "lastHitLabel": "最近命中",
+      "never": "从未",
+      "hitRatioLabel": "缓存命中率",
+      "cachedTokensLabel": "已缓存 Token",
+      "uncachedTokensLabel": "未缓存输入",
+      "requestsUsageLabel": "有效样本数",
+      "lastRequestLine": "最近请求：{cached} 缓存 / {uncached} 未缓存（总输入 {total}）",
+      "billingDiscountLabel": "计费折扣",
+      "discountConfirmed": "已确认 {pct}%（节省 {savings}）",
+      "discountNone": "无缓存折扣",
+      "discountUnknown": "未知（未确认）",
+      "totalCost": "估算费用：{amount}",
+      "maxCostWithoutDiscount": "无折扣上限：{amount}",
+      "discountDisclaimer": "API 返回 cached_tokens 仅证明前缀复用，不代表中转商必然提供计费折扣，除非在下方填写已确认的缓存单价。",
+      "ratesTitle": "可选 Token 单价（USD / 1M）",
+      "ratesHint": "不确定时留空。系统绝不会臆测未经证实的缓存折扣。",
+      "rateInput": "输入单价",
+      "rateCached": "缓存输入单价",
+      "rateOutput": "输出单价",
+      "ratePlaceholder": "未知",
+      "status": {
+        "unknown": "未知",
+        "observed_hit": "已观测命中",
+        "observed_miss": "已观测未命中",
+        "metrics_unavailable": "指标不可用",
+        "native_unsupported": "不支持原生参数"
+      },
+      "strategy": {
+        "automatic": "自动",
+        "native": "原生缓存控制",
+        "standard": "标准兼容"
       }
     }
   },

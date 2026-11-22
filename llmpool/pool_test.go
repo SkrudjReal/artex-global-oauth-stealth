@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"strings"
 	"testing"
@@ -310,6 +311,26 @@ func TestExhaustedChainReportsClearly(t *testing.T) {
 	_, err := drain(p.Stream(context.Background(), llm.CompletionRequest{}))
 	if !errors.Is(err, ErrExhausted) {
 		t.Fatalf("err = %v, want it to wrap ErrExhausted", err)
+	}
+}
+
+func TestExhaustedChainPreservesPrimaryTransportFailure(t *testing.T) {
+	for _, stream := range []bool{true, false} {
+		a := &fakeProv{errs: []error{io.ErrUnexpectedEOF}}
+		b := failProv("offline", 404)
+		p := New([]*Member{member(1, "primary", 10, a), member(2, "offline", 5, b)}, nil)
+		var err error
+		if stream {
+			_, err = drain(p.Stream(context.Background(), llm.CompletionRequest{}))
+		} else {
+			_, _, _, err = p.Complete(context.Background(), llm.CompletionRequest{})
+		}
+		if !errors.Is(err, ErrExhausted) || !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Fatalf("stream=%v: primary failure lost: %v", stream, err)
+		}
+		if !strings.Contains(err.Error(), "primary:") || !strings.Contains(err.Error(), "status 404") {
+			t.Fatalf("stream=%v: incomplete chain diagnostic: %v", stream, err)
+		}
 	}
 }
 

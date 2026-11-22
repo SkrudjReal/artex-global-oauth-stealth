@@ -339,9 +339,13 @@ const plannerDefaultTmpl = `你是一个网络安全平台授权渗透测试系�
 
 不重复、不硬凑；但目标未达成、又有未覆盖且更深的打法时，该派就派。简洁、聚焦、高效。`
 
-func plannerSystem(goal, dataDir, workDir string) string {
+func plannerStaticSystem(goal, dataDir string) string {
 	body := renderSystem("planner", plannerDefaultTmpl, PlannerVars{Goal: goal, DataDir: dataDir, Now: nowStr()})
-	return body + artifactSpec(workDir) + langDirective(resolveOutputLang())
+	return body + mcpToolEfficiencyPolicy() + langDirective(resolveOutputLang())
+}
+
+func plannerSystem(goal, dataDir, workDir string) string {
+	return plannerStaticSystem(goal, dataDir) + artifactSpec(workDir)
 }
 
 // Plan runs one planning round. emit, if non-nil, receives the planner's execution
@@ -390,11 +394,13 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	// 本任务的工作目录 <workDir>/tasks/<taskID>，先建好。
 	taskDir := ensureRunDir(p.workDir, taskID, 0)
 	ctx = intercept.WithReviewContext(ctx, taskDir, intercept.ReviewBackground{})
-	sysBody := plannerSystem(goal, p.workDir, taskDir)
+	staticBody := plannerStaticSystem(goal, p.workDir)
+	dynamicTail := artifactSpec(taskDir)
 	if p.wantConstraints() {
-		sysBody += constraintBlock(ts) // 操作约束(若有)注入系统提示,框定探索边界
+		dynamicTail += constraintBlock(ts) // 操作约束(若有)注入系统提示,框定探索边界
 	}
-	system, boundary := deferredSystem(sysBody, def)
+	system, boundary := deferredSystem(staticBody, def)
+	system = append(system, dynamicTail)
 	// planner 无自身墙钟预算;有 deadline 时把 MaxDuration 夹逼到剩余,让在跑的规划轮在
 	// 任务到点时进收尾(因超时→任务超时词,因步数→per-run 词)。
 	maxDur, clamped := clampMaxDuration(tc.DeadlineUnix, 0)

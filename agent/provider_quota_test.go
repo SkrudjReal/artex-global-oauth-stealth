@@ -129,3 +129,43 @@ func TestProviderDoesNotRetryExplicitQuota429(t *testing.T) {
 		t.Fatalf("explicit quota request retried %d times, want exactly one request", got)
 	}
 }
+
+func TestExplicitHTTP1Transport(t *testing.T) {
+	t.Setenv("ARTEX_LLM_HTTP1_ONLY", "1")
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	defer server.Close()
+
+	client, err := quotaAwareHTTPClient("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapped := client.Transport.(quotaAwareTransport)
+	transport := wrapped.base.(*http.Transport)
+	if transport.Protocols == nil || !transport.Protocols.HTTP1() || transport.Protocols.HTTP2() {
+		t.Fatalf("protocols = %#v, want HTTP/1 only", transport.Protocols)
+	}
+	transport.TLSClientConfig.InsecureSkipVerify = true
+	resp, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.ProtoMajor != 1 {
+		t.Fatalf("negotiated protocol = %s, want HTTP/1.1", resp.Proto)
+	}
+
+	t.Setenv("ARTEX_LLM_HTTP1_ONLY", "")
+	client, err = quotaAwareHTTPClient("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapped = client.Transport.(quotaAwareTransport)
+	transport = wrapped.base.(*http.Transport)
+	if transport.Protocols != nil {
+		t.Fatalf("other provider protocols = %#v, want default negotiation", transport.Protocols)
+	}
+}

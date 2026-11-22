@@ -30,6 +30,10 @@ RUN npm install -g @playwright/mcp@latest @playwright/cli@latest playwright@late
     && playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+ARG INSTALL_HEXSTRIKE=no
+COPY scripts/setup-mcp.py scripts/setup-mcp.sh scripts/hexstrike-mcp.py /app/scripts/
+COPY cve-intel-mcp/requirements.txt cve-intel-mcp/cve_intel_mcp.py /app/cve-intel-mcp/
+RUN ARTEX_INSTALL_HEXSTRIKE=${INSTALL_HEXSTRIKE} bash /app/scripts/setup-mcp.sh
 COPY requirements-uaforge.txt /app/requirements-uaforge.txt
 RUN pip install --no-cache-dir --require-hashes -r /app/requirements-uaforge.txt
 # 미리 컴파일한 해당 아키텍처 바이너리(dist/amd64/artex 또는 dist/arm64/artex)

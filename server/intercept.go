@@ -14,6 +14,7 @@ import (
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/guard"
 	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/artex/llmcache"
 	"github.com/Autumn-27/artex/llmrec"
 	"github.com/Autumn-27/norma/llm"
 )
@@ -58,6 +59,7 @@ func (s *Server) wireInterceptReviewer() {
 		// Tag this call's usage as the "judge" lane so the config page can report
 		// how much the fallback approval has spent, separate from model profiles.
 		ctx = llmrec.WithWorker(ctx, judgeWorkerLane)
+		ctx = llmcache.WithoutProfileInstructions(ctx)
 		text, err := reviewCompletion(ctx, prov, prompt, input)
 		if err != nil {
 			return intercept.Decision{ProfileID: profileID}, err

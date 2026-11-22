@@ -106,10 +106,11 @@ jobs:
     permissions:
       contents: read
       packages: write
-    env:
-      IMAGE_NAMESPACE: ghcr.io/jiwoochris/artex-global
     steps:
       - uses: actions/checkout@v4 # Dockerfile 과 skills/ 를 가져온다
+      - name: Resolve lowercase container namespace
+        shell: bash
+        run: echo "IMAGE_NAMESPACE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
         with:
           name: bin-linux-amd64

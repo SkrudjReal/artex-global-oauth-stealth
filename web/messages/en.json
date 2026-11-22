@@ -3259,7 +3259,8 @@
       "priority": "Priority {priority}",
       "active": "Active",
       "activate": "Set active",
-      "deleteAria": "Delete profile"
+      "deleteAria": "Delete profile",
+      "systemInstructionsBadge": "Custom Prompt"
     },
     "health": {
       "noKey": {
@@ -3413,6 +3414,12 @@
         "savedActive": "Saved. The active profile applies immediately, no restart needed",
         "saved": "Saved",
         "saveFailed": "Save failed: {msg}"
+      },
+      "systemInstructions": {
+        "label": "System Instructions",
+        "hint": "Model-specific instructions prepended before ARTEX role prompts. Stored per profile; empty by default.",
+        "placeholder": "Optional instructions tailored to this LLM profile...",
+        "clear": "Clear"
       }
     },
     "retryLayer": {
@@ -3487,6 +3494,47 @@
         "loadFailed": "Failed to read retry policy: {msg}",
         "saved": "Saved. Applies immediately (a call already in progress keeps using the previous values)",
         "saveFailed": "Save failed: {msg}"
+      }
+    },
+    "promptCache": {
+      "title": "Prompt Caching",
+      "subtitle": "Observed API cache behavior, metrics, and optional rate configuration for this profile.",
+      "reset": "Reset stats",
+      "resetTitle": "Reset prompt cache counters without changing profile settings",
+      "resetToast": "Prompt cache statistics reset",
+      "cardTooltip": "Strategy: {strategy} · Cached: {cached} · Uncached: {uncached}",
+      "strategyLabel": "Strategy",
+      "lastHitLabel": "Last cache hit",
+      "never": "Never",
+      "hitRatioLabel": "Cache hit ratio",
+      "cachedTokensLabel": "Cached tokens",
+      "uncachedTokensLabel": "Uncached input",
+      "requestsUsageLabel": "Usage samples",
+      "lastRequestLine": "Last call: {cached} cached / {uncached} uncached (total {total} input)",
+      "billingDiscountLabel": "Billing discount",
+      "discountConfirmed": "Confirmed {pct}% (saved {savings})",
+      "discountNone": "No cached-token discount",
+      "discountUnknown": "Unknown (not verified)",
+      "totalCost": "Estimated cost: {amount}",
+      "maxCostWithoutDiscount": "Without discount: {amount}",
+      "discountDisclaimer": "cached_tokens proves prefix reuse, not reseller billing discounts, unless a lower cached rate is verified below.",
+      "ratesTitle": "Optional token rates (USD / 1M)",
+      "ratesHint": "Leave blank when pricing is unknown. Never assumes unconfirmed cache discounts.",
+      "rateInput": "Input rate",
+      "rateCached": "Cached input rate",
+      "rateOutput": "Output rate",
+      "ratePlaceholder": "Unknown",
+      "status": {
+        "unknown": "Unknown",
+        "observed_hit": "Cache Hit",
+        "observed_miss": "Cache Miss",
+        "metrics_unavailable": "Metrics Unavailable",
+        "native_unsupported": "Native Unsupported"
+      },
+      "strategy": {
+        "automatic": "Automatic",
+        "native": "Native Cache Control",
+        "standard": "Standard Compatible"
       }
     }
   },

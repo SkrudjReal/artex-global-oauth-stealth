@@ -473,6 +473,33 @@ BEGIN
     END IF;
 END $$;
 
+-- Per-model custom system instructions (empty string by default; never global AGENTS.md).
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS system_instructions TEXT NOT NULL DEFAULT '';
+
+-- Optional manually configured pricing per 1M tokens (USD); NULL means unknown/unverified.
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS input_rate_per_1m        DOUBLE PRECISION;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS cached_input_rate_per_1m DOUBLE PRECISION;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS output_rate_per_1m       DOUBLE PRECISION;
+
+-- Per-profile adaptive prompt caching observation & cumulative stats.
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS cache_status                 TEXT NOT NULL DEFAULT 'unknown';
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS cache_strategy               TEXT NOT NULL DEFAULT '';
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS cache_hits                   BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS cache_misses                 BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS cache_metrics_unavailable    BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS cache_requests_with_usage    BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS cache_cached_input_tokens    BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS cache_uncached_input_tokens  BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS cache_write_tokens           BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS cache_output_tokens          BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS last_cache_hit_at            TIMESTAMPTZ;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS last_cache_observed_at       TIMESTAMPTZ;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS last_request_input_tokens    INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS last_request_cached_tokens   INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS last_request_uncached_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS last_cache_presence          TEXT NOT NULL DEFAULT '';
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS cache_provider_meta          JSONB NOT NULL DEFAULT '{}';
+
 -- LLM 轮询熔断状态：某个配置连续失败(余额不足/key 失效/限流)后进入冷却，冷却期内
 -- 轮询直接跳过它。内存态为准，这里落库只为重启后不丢冷却窗口——加载时只取尚未
 -- 到期的行(open_until > now)，已到期的自然回到"正常"，等下一次调用半开试探。

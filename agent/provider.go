@@ -10,6 +10,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/externalcli"
+	"github.com/Autumn-27/artex/llmcache"
 	"github.com/Autumn-27/artex/llmrec"
 	"github.com/Autumn-27/norma/agentcore"
 	"github.com/Autumn-27/norma/compaction"
@@ -78,6 +80,9 @@ type Config struct {
 	// 空 = 不发送。值由 transcript.WithSessionID 挂在请求 context 上,由 RoundTripper
 	// 读取填入,因此同一共享 provider 也能按会话发出不同的头值。
 	SessionHeaderKey string
+	// SystemInstructions holds optional per-profile system instructions stored in PostgreSQL.
+	// Applied first in the effective system prompt stack without replacing role or runtime instructions.
+	SystemInstructions string
 	// Retry 是该配置解析后的重试参数(profile 覆盖 → 全局策略 → 内置默认,由
 	// server 侧解析)。三层的含义见 RetryConfig;零值 = 完全沿用内置默认。
 	Retry RetryConfig
@@ -313,7 +318,15 @@ func (c Config) NewProvider() (llm.Provider, error) {
 	if c.RatePerSecond > 0 || c.RatePerMinute > 0 {
 		lc.RateLimit = &llm.RateLimit{PerSecond: c.RatePerSecond, PerMinute: c.RatePerMinute}
 	}
-	return llm.NewProvider(lc)
+	provider, err := llm.NewProvider(lc)
+	if err != nil {
+		return nil, err
+	}
+	provider = toolCommitProvider{Provider: provider}
+	if os.Getenv("ARTEX_LLM_BUFFER_STREAM") == "1" {
+		provider = responseRetryProvider{Provider: provider, retry: c.Retry}
+	}
+	return provider, nil
 }
 
 // IsQuotaExhaustedMessage deliberately recognizes only explicit balance,
@@ -385,7 +398,7 @@ func (t quotaAwareTransport) RoundTrip(req *http.Request) (*http.Response, error
 	capt := llmrec.CaptureFrom(req.Context())
 	capt.SetRequest(requestBodySnapshot(req))
 
-	resp, err := t.base.RoundTrip(req)
+	resp, err := diagnosticLLMRoundTrip(t.base, req)
 	if err != nil || resp == nil {
 		return resp, err
 	}
@@ -393,18 +406,28 @@ func (t quotaAwareTransport) RoundTrip(req *http.Request) (*http.Response, error
 	// 429 branch below reads through this wrapper, so its body lands in the
 	// capture before being replaced.
 	resp.Body = capt.TeeResponse(resp.StatusCode, resp.Body)
+	cacheObs := llmcache.CallObserverFromContext(req.Context())
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 && cacheObs != nil {
+		resp.Body = cacheObs.TeeBody(resp.Body, resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
 
-	if resp.StatusCode != http.StatusTooManyRequests {
+	if resp.StatusCode != http.StatusTooManyRequests && (cacheObs == nil || resp.StatusCode < 400 || resp.StatusCode >= 500) {
 		return resp, nil
 	}
 	body, readErr := io.ReadAll(resp.Body)
+	if readErr == io.EOF {
+		readErr = nil
+	}
 	_ = resp.Body.Close()
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 	resp.ContentLength = int64(len(body))
 	if readErr != nil {
 		return resp, nil
 	}
-	if IsQuotaExhaustedMessage(string(body)) {
+	if cacheObs != nil && resp.StatusCode >= 400 && resp.StatusCode < 500 {
+		cacheObs.InspectErrorBody(resp.StatusCode, body)
+	}
+	if resp.StatusCode == http.StatusTooManyRequests && IsQuotaExhaustedMessage(string(body)) {
 		resp.StatusCode = http.StatusPaymentRequired
 		resp.Status = "402 Payment Required"
 	}
@@ -432,6 +455,18 @@ func requestBodySnapshot(req *http.Request) string {
 
 func quotaAwareHTTPClient(proxy, sessionHeaderKey string) (*http.Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if os.Getenv("ARTEX_LLM_HTTP1_ONLY") == "1" {
+		transport.Protocols = new(http.Protocols)
+		transport.Protocols.SetHTTP1(true)
+		transport.ForceAttemptHTTP2 = false
+		transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+		if transport.TLSClientConfig == nil {
+			transport.TLSClientConfig = new(tls.Config)
+		} else {
+			transport.TLSClientConfig = transport.TLSClientConfig.Clone()
+		}
+		transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	}
 	proxy = strings.TrimSpace(proxy)
 	if proxy == "" {
 		transport.Proxy = nil // 留空=直连,不回退 HTTP_PROXY/HTTPS_PROXY 环境变量
@@ -513,6 +548,7 @@ func TestConnection(ctx context.Context, c Config) (time.Duration, string, error
 	// 点击测试却 400"的落差。这里补挂一个一次性随机 session id,让测试与真实对话走同
 	// 一套发头逻辑;未配 SessionHeaderKey 的端点不读它,无副作用。
 	ctx = transcript.WithSessionID(ctx, "conntest-"+transcript.NewSessionID())
+	ctx = llmcache.WithoutProfileInstructions(ctx)
 	start := time.Now()
 	// MaxTokens 要给足：推理模型(如 deepseek-v4-pro)在给出答案前会先产出一大段
 	// 思考(实测对一句 "ping" 也能烧 ~2900 token)。若只给 32,模型会一直卡在"思考阶段"

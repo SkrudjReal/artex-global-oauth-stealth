@@ -83,6 +83,7 @@ func (p *Pool) Stream(ctx context.Context, req llm.CompletionRequest) iter.Seq2[
 	order := p.order(req)
 	return func(yield func(llm.StreamEvent, error) bool) {
 		var lastErr error
+		var failures []error
 		for i, m := range order {
 			emitted := false
 			var failed error
@@ -104,6 +105,7 @@ func (p *Pool) Stream(ctx context.Context, req llm.CompletionRequest) iter.Seq2[
 				return
 			}
 			lastErr = failed
+			failures = append(failures, fmt.Errorf("%s: %w", m.Name, failed))
 			hard := isHardFailure(failed)
 			if p.health.Trip(m.ID, trimErr(failed), hard) {
 				log.Printf("[llmpool] 配置 %q(%s) 已熔断：%s", m.Name, m.Model, trimErr(failed))
@@ -118,7 +120,7 @@ func (p *Pool) Stream(ctx context.Context, req llm.CompletionRequest) iter.Seq2[
 			lastErr = ErrExhausted
 		}
 		log.Printf("[llmpool] 轮询链已耗尽(%d 个配置全部失败)，最后错误：%s", len(order), trimErr(lastErr))
-		yield(llm.StreamEvent{}, fmt.Errorf("%w: %v", ErrExhausted, lastErr))
+		yield(llm.StreamEvent{}, fmt.Errorf("%w: %w", ErrExhausted, errors.Join(failures...)))
 	}
 }
 
@@ -130,6 +132,7 @@ func (p *Pool) Stream(ctx context.Context, req llm.CompletionRequest) iter.Seq2[
 func (p *Pool) Complete(ctx context.Context, req llm.CompletionRequest) (llm.Message, string, llm.Usage, error) {
 	order := p.order(req)
 	var lastErr error
+	var failures []error
 	for i, m := range order {
 		msg, sr, usage, err := m.Prov.Complete(ctx, req)
 		if err == nil {
@@ -143,6 +146,7 @@ func (p *Pool) Complete(ctx context.Context, req llm.CompletionRequest) (llm.Mes
 			return llm.Message{}, "", llm.Usage{}, err
 		}
 		lastErr = err
+		failures = append(failures, fmt.Errorf("%s: %w", m.Name, err))
 		hard := isHardFailure(err)
 		if p.health.Trip(m.ID, trimErr(err), hard) {
 			log.Printf("[llmpool] 配置 %q(%s) 已熔断：%s", m.Name, m.Model, trimErr(err))
@@ -157,7 +161,7 @@ func (p *Pool) Complete(ctx context.Context, req llm.CompletionRequest) (llm.Mes
 		lastErr = ErrExhausted
 	}
 	log.Printf("[llmpool] 轮询链已耗尽(%d 个配置全部失败)，最后错误：%s", len(order), trimErr(lastErr))
-	return llm.Message{}, "", llm.Usage{}, fmt.Errorf("%w: %v", ErrExhausted, lastErr)
+	return llm.Message{}, "", llm.Usage{}, fmt.Errorf("%w: %w", ErrExhausted, errors.Join(failures...))
 }
 
 // order picks the members to try, in order: skip those in a cooling-off window

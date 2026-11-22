@@ -36,6 +36,10 @@ const (
 	errMCPUnknownTransportFmt = "알 수 없는 전송 방식입니다: %q"
 )
 
+// connectMCPHook, when non-nil, overrides the actual transport dial after basic
+// transport/command/URL validation (used by unit tests for deterministic live/timeout checks).
+var connectMCPHook func(context.Context, *db.MCPServer) (mcpClient, error)
+
 // connectMCP dials one MCP server per its transport. Callers must Close the client.
 func connectMCP(ctx context.Context, m *db.MCPServer) (mcpClient, error) {
 	switch m.Transport {
@@ -43,16 +47,25 @@ func connectMCP(ctx context.Context, m *db.MCPServer) (mcpClient, error) {
 		if m.Command == "" {
 			return nil, errors.New(errMCPStdioNoCommand)
 		}
+		if connectMCPHook != nil {
+			return connectMCPHook(ctx, m)
+		}
 		return mcp.NewStdioClient(ctx, m.Name, m.Command, jsonStrMap(m.Env), jsonStrSlice(m.Args)...)
 	case "http":
 		if m.URL == "" {
 			return nil, errors.New(errMCPHTTPNoURL)
+		}
+		if connectMCPHook != nil {
+			return connectMCPHook(ctx, m)
 		}
 		// env map doubles as HTTP headers (e.g. Authorization).
 		return mcphttp.New(ctx, m.Name, m.URL, jsonStrMap(m.Env), m.Insecure)
 	case "sse":
 		if m.URL == "" {
 			return nil, errors.New(errMCPSSENoURL)
+		}
+		if connectMCPHook != nil {
+			return connectMCPHook(ctx, m)
 		}
 		return mcphttp.NewSSE(ctx, m.Name, m.URL, jsonStrMap(m.Env), m.Insecure)
 	default:

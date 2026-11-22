@@ -342,6 +342,7 @@ func (s *Server) pgCreateAgent(w http.ResponseWriter, r *http.Request) {
 	if err := pg.SeedPromptIfEmpty(a.ID, agent.DefaultAssistantPrompt); err != nil {
 		log.Printf("[agents] seed starter prompt for %s 失败: %v", a.Key, err)
 	}
+	_ = pg.AddAgentToToolBinding(a.Key, []string{toolKeyListMCPTools})
 	writeJSON(w, 200, agentDTO(a))
 }
 
@@ -903,6 +904,17 @@ func (s *Server) pgResetTool(w http.ResponseWriter, r *http.Request) {
 		}
 		schema, _ := json.Marshal(t.InputSchema())
 		if err := pg.UpsertToolForce(t.Name(), t.Description(), schema, autoAgents); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true})
+		return
+	}
+	if key == toolKeyListMCPTools {
+		t := newListMCPToolsTool(pg, s.skillDir, "", nil)
+		schema, _ := json.Marshal(t.InputSchema())
+		agents, _ := json.Marshal(defaultListMCPToolsAgents)
+		if err := pg.UpsertToolForce(t.Name(), t.Description(), schema, agents); err != nil {
 			writeErr(w, 500, err.Error())
 			return
 		}
@@ -1895,11 +1907,21 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	if p.Format != "openai" || p.MaxTokensField != llm.MaxTokensFieldCompletion {
 		p.MaxTokensField = ""
 	}
+	if p.InputRatePer1M != nil && *p.InputRatePer1M < 0 {
+		p.InputRatePer1M = nil
+	}
+	if p.CachedInputRatePer1M != nil && *p.CachedInputRatePer1M < 0 {
+		p.CachedInputRatePer1M = nil
+	}
+	if p.OutputRatePer1M != nil && *p.OutputRatePer1M < 0 {
+		p.OutputRatePer1M = nil
+	}
 	id, err := pg.SaveProfile(&p)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.cacheStore().Invalidate(id)
 	// Editing a profile rebuilds any task pinned to it on its next round. Reapply
 	// the active profile too: the global fallback and explicit task chains must
 	// repopulate the same provider-cache entry and therefore share one limiter.
@@ -1909,6 +1931,31 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	// engine's provider has to be rebuilt either way.
 	s.reapplyActiveProfile()
 	writeJSON(w, 200, map[string]any{"id": id})
+}
+
+func (s *Server) pgResetProfileCache(w http.ResponseWriter, r *http.Request) {
+	pg := s.pg(w)
+	if pg == nil {
+		return
+	}
+	id, ok := pathInt(r, "id")
+	if !ok || id <= 0 {
+		writeErr(w, 400, errMgmtLLMProfileIDFormat)
+		return
+	}
+	fresh, err := pg.ResetProfileCacheStats(id)
+	if err == db.ErrLLMProfileNotFound {
+		writeErr(w, 404, err.Error())
+		return
+	}
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.cacheStore().Invalidate(id)
+	s.invalidateProfileAgents()
+	s.reapplyActiveProfile()
+	writeJSON(w, 200, map[string]any{"prompt_cache": fresh})
 }
 
 // pgGetLLMRetryPolicy 返回全局重试策略(五层各自的次数+间隔)。未配置过 → 全零，

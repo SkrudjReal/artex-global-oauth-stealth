@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Autumn-27/norma/agentcore"
@@ -94,10 +95,11 @@ func TestReviewCurlWget(t *testing.T) {
 	if err != nil || string(quoted) != configs[0] {
 		t.Fatalf("unsafe config path: %v %s", err, quoted)
 	}
-	var want string
-	calls := 0
+	var expected atomic.Value
+	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		calls.Add(1)
+		want := expected.Load().(string)
 		if r.UserAgent() != want {
 			t.Errorf("UA=%q want %q", r.UserAgent(), want)
 		}
@@ -114,7 +116,7 @@ func TestReviewCurlWget(t *testing.T) {
 			t.Fatal(err)
 		}
 		for mode := range 3 {
-			want = ua
+			want := ua
 			var args []string
 			if name == "curl" {
 				args = []string{"-q", "--config", configs[0], "-sSf"}
@@ -131,13 +133,14 @@ func TestReviewCurlWget(t *testing.T) {
 					args = append(args, "--header=User-Agent: "+want)
 				}
 			}
+			expected.Store(want)
 			args = append(args, "--", server.URL+"/?q=$(touch%20ignored)")
 			if output, err := exec.CommandContext(t.Context(), name, args...).CombinedOutput(); err != nil {
 				t.Fatalf("%s: %v %s", name, err, output)
 			}
 		}
 	}
-	if calls != 6 {
+	if calls.Load() != 6 {
 		t.Fatalf("calls=%d", calls)
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {

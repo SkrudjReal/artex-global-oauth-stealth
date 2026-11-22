@@ -3259,7 +3259,8 @@
       "priority": "Prioridad {priority}",
       "active": "Activo",
       "activate": "Establecer como activo",
-      "deleteAria": "Eliminar perfil"
+      "deleteAria": "Eliminar perfil",
+      "systemInstructionsBadge": "Instrucciones"
     },
     "health": {
       "noKey": {
@@ -3413,6 +3414,12 @@
         "savedActive": "Guardado. El perfil activo se aplica de inmediato, sin necesidad de reiniciar",
         "saved": "Guardado",
         "saveFailed": "Error al guardar: {msg}"
+      },
+      "systemInstructions": {
+        "label": "System Instructions",
+        "hint": "Instrucciones específicas del modelo antepuestas a los prompts de rol de ARTEX. Independiente por perfil; vacío por defecto.",
+        "placeholder": "Instrucciones opcionales para este perfil LLM...",
+        "clear": "Limpiar"
       }
     },
     "retryLayer": {
@@ -3487,6 +3494,47 @@
         "loadFailed": "Error al leer la política de reintentos: {msg}",
         "saved": "Guardado. Se aplica de inmediato (una llamada ya en curso sigue usando los valores anteriores)",
         "saveFailed": "Error al guardar: {msg}"
+      }
+    },
+    "promptCache": {
+      "title": "Prompt Caching",
+      "subtitle": "Estado observado de caché de la API, métricas y tarifas opcionales para este perfil.",
+      "reset": "Restablecer",
+      "resetTitle": "Reiniciar estadísticas de caché sin cambiar la configuración del perfil",
+      "resetToast": "Estadísticas de caché reiniciadas",
+      "cardTooltip": "Estrategia: {strategy} · En caché: {cached} · Sin caché: {uncached}",
+      "strategyLabel": "Estrategia",
+      "lastHitLabel": "Último acierto",
+      "never": "Nunca",
+      "hitRatioLabel": "Tasa de aciertos",
+      "cachedTokensLabel": "Tokens en caché",
+      "uncachedTokensLabel": "Entrada sin caché",
+      "requestsUsageLabel": "Muestras de uso",
+      "lastRequestLine": "Última llamada: {cached} en caché / {uncached} sin caché (total {total})",
+      "billingDiscountLabel": "Descuento de facturación",
+      "discountConfirmed": "Confirmado {pct}% (ahorro {savings})",
+      "discountNone": "Sin descuento",
+      "discountUnknown": "Desconocido (no verificado)",
+      "totalCost": "Costo estimado: {amount}",
+      "maxCostWithoutDiscount": "Sin descuento: {amount}",
+      "discountDisclaimer": "cached_tokens confirma reutilización del prefijo, no descuentos de facturación, salvo que se verifique una tarifa inferior abajo.",
+      "ratesTitle": "Tarifas opcionales (USD / 1M)",
+      "ratesHint": "Dejar vacío si se desconoce. Nunca asume descuentos no confirmados.",
+      "rateInput": "Tarifa entrada",
+      "rateCached": "Tarifa caché",
+      "rateOutput": "Tarifa salida",
+      "ratePlaceholder": "Desconocido",
+      "status": {
+        "unknown": "Desconocido",
+        "observed_hit": "Acierto observado",
+        "observed_miss": "Fallo observado",
+        "metrics_unavailable": "Métricas no disponibles",
+        "native_unsupported": "Nativo no soportado"
+      },
+      "strategy": {
+        "automatic": "Automática",
+        "native": "Control nativo",
+        "standard": "Estándar compatible"
       }
     }
   },

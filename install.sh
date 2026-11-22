@@ -52,6 +52,16 @@ install_docker(){
     warn "이 스크립트를 다시 실행해 \"2) 로컬 실행 (go 컴파일)\" 을 고르거나, README \"소스에서 단일 바이너리 컴파일\" 경로로 빌드할 수도 있습니다"
     die "Docker Compose(전부 Docker) 기동에 실패했습니다"
   fi
+  local hexstrike_choice
+  hexstrike_choice="${ARTEX_INSTALL_HEXSTRIKE:-ask}"
+  if [ "$hexstrike_choice" = ask ]; then
+    hexstrike_choice=no
+    case "$(ask 'Install/configure HexStrike MCP? (y/n)' n)" in
+      y|yes) hexstrike_choice=yes ;;
+    esac
+  fi
+  docker compose exec -T -e "ARTEX_INSTALL_HEXSTRIKE=$hexstrike_choice" artex bash /app/scripts/setup-mcp.sh
+  docker compose restart artex
   ok "기동을 완료했습니다 → http://localhost:8787"
   info "첫 접속 시 /setup 화면에서 \"설정 토큰\"을 입력해야 관리자 비밀번호를 만들 수 있습니다"
   info "설정 토큰 확인: docker compose logs artex | grep -F '[auth]'   (기본 게시 주소는 127.0.0.1 이며 .env 의 ARTEX_BIND 로 바꿉니다)"
@@ -98,6 +108,8 @@ JSON
   # go 환경 확인
   command -v go >/dev/null 2>&1 || die "Go 를 찾을 수 없습니다. 먼저 Go (>=1.26) 를 설치해 주세요: https://go.dev/dl/"
   ok "Go: $(go version)"
+
+  bash scripts/setup-mcp.sh
 
   python3 -m venv .venv-uaforge
   .venv-uaforge/bin/pip install --require-hashes -r requirements-uaforge.txt

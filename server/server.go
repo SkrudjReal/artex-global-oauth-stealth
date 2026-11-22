@@ -25,6 +25,7 @@ import (
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/externalcli"
 	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/artex/llmcache"
 	"github.com/Autumn-27/artex/llmpool"
 	"github.com/Autumn-27/artex/llmrec"
 	"github.com/Autumn-27/artex/notify"
@@ -183,6 +184,9 @@ type Server struct {
 	provCacheMu   sync.Mutex
 	provByProfile map[int64]*provEntry
 	provCacheGen  uint64
+
+	llmCacheMu    sync.Mutex
+	llmCacheStore *db.PGCacheStore
 
 	// llmHealth is the process-wide circuit-breaker state for LLM failover (轮询).
 	// It deliberately lives OUTSIDE the provider caches: rebuilding the chain
@@ -347,7 +351,11 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		}
 		// Fill the tool cache for any enabled MCP that has none yet (notably the
 		// seeded browser MCP on first run). Async so it never blocks startup.
-		go s.discoverEmptyMCPsOnStartup()
+		s.prepareBundledMCPs()
+		go func() {
+			s.warmBundledMCPs()
+			s.discoverEmptyMCPsOnStartup()
+		}()
 		logSink.SetDB(ctx, m.pg) // restore last 100 log rows and enable async persistence
 	}
 	// precedence: persisted DB config > env.
@@ -448,6 +456,7 @@ func (s *Server) loadLLMConfig() (agent.Config, bool) {
 	cfg.Stream = p.Streaming
 	cfg.MaxTokens, cfg.MaxTokensField = p.MaxTokens, p.MaxTokensField
 	cfg.SessionHeaderKey = p.SessionHeaderKey
+	cfg.SystemInstructions = p.SystemInstructions
 	s.applyProfileRetry(&cfg, p)
 	if !cfg.Ready() {
 		return cfg, false
@@ -560,6 +569,12 @@ func (s *Server) applyLLM(cfg agent.Config) error {
 		profName := s.llmProf
 		s.cfgMu.Unlock()
 		prov = llmrec.Wrap(prov, s.m.PG(), cfg.Model, profName, cfg.ThinkingType, cfg.ReasoningEffort, s.m.LLMRecordEnabled)
+		prov = llmcache.Wrap(prov, llmcache.AdaptiveConfig{
+			ProfileID:          0,
+			ProviderFormat:     string(cfg.Format),
+			SystemInstructions: cfg.SystemInstructions,
+			Store:              s.cacheStore(),
+		})
 		prov = bindSideProvider(prov, cfg, 0, profName)
 	}
 	s.cfgMu.Lock()
@@ -620,6 +635,7 @@ func (s *Server) loadProfileConfig(id int64) (agent.Config, bool) {
 	cfg.Stream = p.Streaming
 	cfg.MaxTokens, cfg.MaxTokensField = p.MaxTokens, p.MaxTokensField
 	cfg.SessionHeaderKey = p.SessionHeaderKey
+	cfg.SystemInstructions = p.SystemInstructions
 	s.applyProfileRetry(&cfg, p)
 	if !cfg.Ready() {
 		return cfg, false
@@ -672,6 +688,19 @@ func (s *Server) chatUnavailableReason() string {
 	return trMsg(errChatLLMNotReady)
 }
 
+func (s *Server) cacheStore() *db.PGCacheStore {
+	s.llmCacheMu.Lock()
+	defer s.llmCacheMu.Unlock()
+	if s.llmCacheStore == nil {
+		var pg *db.DB
+		if s.m != nil {
+			pg = s.m.PG()
+		}
+		s.llmCacheStore = db.NewPGCacheStore(pg)
+	}
+	return s.llmCacheStore
+}
+
 // providerForProfile returns a cached provider+cfg for a profile id, so every agent
 // bound/pinned to the same profile shares one provider instance (one rate limiter).
 // ok=false when the profile is missing/invalid → caller falls back to the global pair.
@@ -692,9 +721,15 @@ func (s *Server) providerForProfile(id int64) (llm.Provider, agent.Config, bool)
 		log.Printf("[engine] build provider for LLM profile %d failed: %v", id, err)
 		return nil, agent.Config{}, false
 	}
-	// Wrap with recorder, tagged with this profile's name.
+	// Wrap with recorder, adaptive prompt cache, and side-provider hook, tagged with this profile.
 	if p, _ := s.m.pg.ProfileByID(id); p != nil {
 		prov = llmrec.Wrap(prov, s.m.PG(), cfg.Model, p.Name, cfg.ThinkingType, cfg.ReasoningEffort, s.m.LLMRecordEnabled)
+		prov = llmcache.Wrap(prov, llmcache.AdaptiveConfig{
+			ProfileID:          id,
+			ProviderFormat:     string(cfg.Format),
+			SystemInstructions: cfg.SystemInstructions,
+			Store:              s.cacheStore(),
+		})
 		prov = bindSideProvider(prov, cfg, id, p.Name)
 	}
 	s.provCacheMu.Lock()
@@ -1018,6 +1053,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/llm/profiles", s.pgListProfiles)
 	mux.HandleFunc("POST /api/llm/profiles", s.pgSaveProfile)
 	mux.HandleFunc("DELETE /api/llm/profiles/{id}", s.pgDeleteProfile)
+	mux.HandleFunc("POST /api/llm/profiles/{id}/cache-reset", s.pgResetProfileCache)
 	mux.HandleFunc("POST /api/llm/profiles/active", s.pgActivateProfile)
 	mux.HandleFunc("GET /api/llm/retry-policy", s.pgGetLLMRetryPolicy)
 	mux.HandleFunc("POST /api/llm/retry-policy", s.pgSaveLLMRetryPolicy)

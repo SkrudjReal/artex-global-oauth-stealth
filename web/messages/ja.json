@@ -3259,7 +3259,8 @@
       "priority": "優先度 {priority}",
       "active": "有効",
       "activate": "有効に設定",
-      "deleteAria": "設定を削除"
+      "deleteAria": "設定を削除",
+      "systemInstructionsBadge": "個別指示"
     },
     "health": {
       "noKey": {
@@ -3413,6 +3414,12 @@
         "savedActive": "保存しました。有効な設定は即座に適用され、再起動は不要です",
         "saved": "保存しました",
         "saveFailed": "保存に失敗しました: {msg}"
+      },
+      "systemInstructions": {
+        "label": "System Instructions",
+        "hint": "ARTEX ロールプロンプトの前に配置されるモデル固有の指示。プロファイルごとに保存され、初期値は空です。",
+        "placeholder": "この LLM プロファイル専用の任意の指示を入力...",
+        "clear": "クリア"
       }
     },
     "retryLayer": {
@@ -3487,6 +3494,47 @@
         "loadFailed": "再試行ポリシーの読み取りに失敗しました: {msg}",
         "saved": "保存しました。即座に適用されます (現在進行中のこの呼び出しは以前の値をそのまま使います)",
         "saveFailed": "保存に失敗しました: {msg}"
+      }
+    },
+    "promptCache": {
+      "title": "Prompt Caching",
+      "subtitle": "このプロファイルで観測された API キャッシュ状態、トークン統計、任意の単価設定です。",
+      "reset": "統計をリセット",
+      "resetTitle": "プロファイル設定を維持したままキャッシュ統計のみリセットします",
+      "resetToast": "プロンプトキャッシュ統計をリセットしました",
+      "cardTooltip": "戦略: {strategy} · キャッシュ: {cached} · 非キャッシュ: {uncached}",
+      "strategyLabel": "戦略",
+      "lastHitLabel": "最終ヒット",
+      "never": "なし",
+      "hitRatioLabel": "ヒット率",
+      "cachedTokensLabel": "キャッシュ済み",
+      "uncachedTokensLabel": "非キャッシュ入力",
+      "requestsUsageLabel": "観測サンプル数",
+      "lastRequestLine": "直近呼び出し: キャッシュ {cached} / 非キャッシュ {uncached} (入力計 {total})",
+      "billingDiscountLabel": "料金割引",
+      "discountConfirmed": "確認済み {pct}% (節約 {savings})",
+      "discountNone": "キャッシュ割引なし",
+      "discountUnknown": "不明（未確認）",
+      "totalCost": "推定コスト: {amount}",
+      "maxCostWithoutDiscount": "割引なし上限: {amount}",
+      "discountDisclaimer": "cached_tokens はプレフィックス再利用のみを示し、下で割引単価を確認しない限りリセラー割引を保証しません。",
+      "ratesTitle": "任意のトークン単価 (USD / 1M)",
+      "ratesHint": "不明な場合は空欄のままにしてください。未確認の割引は仮定しません。",
+      "rateInput": "入力単価",
+      "rateCached": "キャッシュ単価",
+      "rateOutput": "出力単価",
+      "ratePlaceholder": "不明",
+      "status": {
+        "unknown": "不明",
+        "observed_hit": "ヒット観測",
+        "observed_miss": "ミス観測",
+        "metrics_unavailable": "メトリクス非対応",
+        "native_unsupported": "ネイティブ非対応"
+      },
+      "strategy": {
+        "automatic": "自動",
+        "native": "ネイティブ制御",
+        "standard": "標準互換"
       }
     }
   },

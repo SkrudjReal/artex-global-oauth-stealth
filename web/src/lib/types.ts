@@ -1059,6 +1059,55 @@ export interface LLMProfile {
   session_header_key?: string;
   // 本配置对重试的覆盖（建连/空响应/同 provider 安全窗口）。留空/全 0 = 跟随全局策略。
   retry?: LLMRetryOverride;
+  system_instructions?: string;
+  input_rate_per_1m?: number | null;
+  cached_input_rate_per_1m?: number | null;
+  output_rate_per_1m?: number | null;
+  prompt_cache?: PromptCacheStats;
+  prompt_cache_hit_ratio?: number;
+  prompt_cache_cost?: PromptCacheCostEstimate;
+}
+
+export type PromptCacheStatus =
+  | "unknown"
+  | "observed_hit"
+  | "observed_miss"
+  | "metrics_unavailable"
+  | "native_unsupported";
+
+export type PromptCacheStrategy = "automatic" | "native" | "standard";
+
+export interface PromptCacheStats {
+  profile_id: number;
+  status: PromptCacheStatus;
+  strategy: PromptCacheStrategy;
+  hits: number;
+  misses: number;
+  metrics_unavailable_count: number;
+  requests_with_usage: number;
+  cached_input_tokens: number;
+  uncached_input_tokens: number;
+  cache_write_tokens: number;
+  output_tokens: number;
+  last_cache_hit_at?: string;
+  last_observed_at?: string;
+  last_request_input_tokens: number;
+  last_request_cached_tokens: number;
+  last_request_uncached_tokens: number;
+  last_presence?: string;
+  provider_meta?: Record<string, unknown>;
+}
+
+export interface PromptCacheCostEstimate {
+  rates_configured: boolean;
+  discount_status: "unknown" | "confirmed" | "none";
+  discount_percent?: number;
+  uncached_cost_usd?: number;
+  cached_cost_usd?: number;
+  output_cost_usd?: number;
+  total_cost_usd?: number;
+  savings_usd?: number;
+  max_without_discount_usd?: number;
 }
 
 // ---- LLM 重试策略 ----
@@ -1616,13 +1665,18 @@ export interface InterceptExecution {
 
 export type OAuthCLIKind = "codex-oauth" | "agy-oauth";
 export interface OAuthCLIStatus {
- compatibility?: string;
- installed: boolean;
- authenticated: boolean;
- state: string;
- instruction?: string;
- models: string[];
- verification_url?: string;
- user_code?: string;
+  compatibility?: string;
+  installed: boolean;
+  authenticated: boolean;
+  state: string;
+  instruction?: string;
+  models: string[];
+  verification_url?: string;
+  user_code?: string;
 }
-export interface ExternalCLIEvent { type: string; text?: string; status?: string; usage?: Record<string, unknown>; }
+export interface ExternalCLIEvent {
+  type: string;
+  text?: string;
+  status?: string;
+  usage?: Record<string, unknown>;
+}
